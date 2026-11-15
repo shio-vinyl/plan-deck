@@ -50,7 +50,7 @@
 
 ### 3. 地图交给 gis 系列
 
-plan-deck 不画地图。空间分析交给 [gis-kit](https://github.com/shioo-gis/gis-kit)，出图交给 gis-composer（我的另一个项目，还没公开）。plan-deck 只读 gis-composer 的发布版：核对文件哈希，按地图的打印尺寸原样放图，把图例画成可编辑的形状；地图主题的颜色和字体与页面对不上、发布版带着没过的 QA 时给警告。地图类型和分工见 [map-types.md](docs/map-types.md)。
+plan-deck 不画地图。空间分析交给 [gis-kit](https://github.com/shio-vinyl/gis-kit)，出图交给 gis-composer（我的另一个项目，还没公开）。plan-deck 只读 gis-composer 的发布版：核对文件哈希，按地图的打印尺寸原样放图，把图例画成可编辑的形状；地图主题的颜色和字体与页面对不上、发布版带着没过的 QA 时给警告。地图类型和分工见 [map-types.md](docs/map-types.md)。
 
 ### 4. 检查和交付
 
@@ -71,9 +71,9 @@ plan-deck 不画地图。空间分析交给 [gis-kit](https://github.com/shioo-g
 
 ```bash
 # Claude Code
-git clone https://github.com/shioo-gis/plan-deck.git ~/.claude/skills/plan-deck
+git clone https://github.com/shio-vinyl/plan-deck.git ~/.claude/skills/plan-deck
 # Codex
-git clone https://github.com/shioo-gis/plan-deck.git ~/.codex/skills/plan-deck
+git clone https://github.com/shio-vinyl/plan-deck.git ~/.codex/skills/plan-deck
 ```
 
 **2. 准备 Python 环境**（Python 3.10 或更高），在仓库里建虚拟环境：
