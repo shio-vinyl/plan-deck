@@ -167,7 +167,7 @@ plan-deck clean deck.pptx 副本.pptx [--pattern 正则] [--drop-hidden] [--forc
 plan-deck render deck.pptx --out renders/ [--engine powerpoint|libreoffice] [--style style.json]   转 pdf 和逐页 png，列出实际嵌入的字体
 ```
 
-**还没有的**：起稿 spec、结构大纲生成、页面池操作（取页、重排、隐藏）、按名字 patch（文字替换有 `replace_text`）、页面元数据、版式清单的槽位模板、结构页（封面、目录、章节页）、导出地图主题、地图槽位请求。这些在出页脚本里手写或用常规库做，规则照样遵守；设想记在 Issue #3。
+**还没有的**：起稿 spec、结构大纲生成、页面池操作（取页、重排、隐藏）、按名字 patch（文字替换有 `replace_text`）、页面元数据、版式清单的槽位模板、结构页（封面、目录、章节页）、导出地图主题、地图槽位请求。这些在出页脚本里手写或用常规库做，规则照样遵守；设想记在 Issue #8。
 
 ## 改已有 pptx
 
