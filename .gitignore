@@ -1,0 +1,9 @@
+.work/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+~$*.pptx
+*.egg-info/
+build/

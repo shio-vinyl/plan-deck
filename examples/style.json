@@ -1,0 +1,39 @@
+{
+  "contract": "plan-deck-style",
+  "schema_version": 1,
+  "name": "江屿市北岸老城片区城市更新统筹规划（虚构示例）",
+  "purpose": "practical",
+  "page": {"widthCm": 52.8, "heightCm": 29.7},
+  "body": {"leftCm": 1.6, "rightCm": 1.6, "topCm": 6.0, "bottomCm": 1.2},
+  "grid": {"columns": 12, "gutterCm": 0.6},
+  "fonts": {"cjk": "微软雅黑", "latin": "Arial"},
+  "type": {"parent": 34, "title": 28, "conclusion": 34, "lead": 22, "heading": 22, "body": 18, "figure": 44},
+  "mapText": {"labelPt": 15.5, "minorPt": 14},
+  "colors": {
+    "title": "#194461",
+    "emphasis": "#C00000",
+    "text": "#262626",
+    "muted": "#646464",
+    "line": "#BFBFBF",
+    "gridline": "#E5E5E5",
+    "fill": "#F2F2F2",
+    "highlightFill": "#FFF2CC",
+    "white": "#FFFFFF",
+    "primary": "#0D7578",
+    "secondary": "#33A3DA",
+    "accent": "#E46C3C"
+  },
+  "classes": {
+    "更新方式": {"拆除重建": "{colors.accent}", "综合整治": "{colors.secondary}", "有机更新": "{colors.primary}"},
+    "实施时序": {"近期": "{colors.emphasis}", "中期": "#FFC000", "远期": "#B4C7E7"}
+  },
+  "header": {
+    "lines": [
+      {"role": "parent", "xCm": 1.6, "yCm": 0.9, "wCm": 49.6, "hCm": 1.6, "size": "parent", "color": "title", "bold": true},
+      {"role": "title", "xCm": 1.6, "yCm": 2.5, "wCm": 49.6, "hCm": 1.4, "size": "title", "color": "title", "bold": true},
+      {"role": "lead", "xCm": 1.6, "yCm": 4.4, "wCm": 49.6, "hCm": 1.2, "size": "lead", "color": "muted"}
+    ],
+    "rule": {"xCm": 1.6, "yCm": 4.2, "wCm": 49.6, "color": "line", "widthPt": 0.75}
+  },
+  "conclusion": {"xCm": 1.6, "yCm": 4.3, "wCm": 49.6, "hCm": 1.6}
+}

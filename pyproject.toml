@@ -1,0 +1,17 @@
+[project]
+name = "plan-deck"
+version = "0.1.0"
+description = "规划汇报 PPT 运行时：项目视觉系统、页面组件、地图衔接"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+dependencies = ["python-pptx>=1.0", "pillow>=10"]
+
+[project.scripts]
+plan-deck = "plan_deck.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
