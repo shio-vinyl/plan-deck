@@ -39,4 +39,11 @@ def apply_template(prs, style):
         el = scheme.find(qn(f'a:{slot}'))
         el.clear()
         etree.SubElement(el, qn('a:srgbClr'), val=style.color(name).lstrip('#'))
+    # 主题的效果样式（effectStyleLst）默认带外阴影：python-pptx 直接 add_shape、同事在 PowerPoint 里新建的形状都引用它，
+    # 无填充的框会把阴影画在字上。形状不加阴影（visual-language.md“框和卡片”），三档都清成空效果
+    effects = root.find(f'.//{qn("a:effectStyleLst")}')
+    for es in effects if effects is not None else ():
+        for child in list(es):
+            es.remove(child)
+        etree.SubElement(es, qn('a:effectLst'))
     theme._blob = etree.tostring(root, xml_declaration=True, encoding='UTF-8', standalone=True)

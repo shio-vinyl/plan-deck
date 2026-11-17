@@ -16,6 +16,7 @@ from pptx.oxml import parse_xml
 from pptx.oxml.ns import nsdecls, qn
 from pptx.util import Cm, Pt
 
+from .blocks import Blocks
 from .maps import MapAsset, MapError, class_mismatches, legend_rows
 from .measure import LINE, MARK, PT_CM, text_height
 from .style import DataColor, Style, StyleError
@@ -76,13 +77,16 @@ def _items(items):
 
 class Deck:
     def __init__(self, style, prs=None):
-        self.style = style if isinstance(style, Style) else Style.load(style)
+        self.style = style if isinstance(style, Style) else Style(style) if isinstance(style, dict) else Style.load(style)
         self.prs = Presentation() if prs is None else prs
         if prs is None:
             apply_template(self.prs, self.style)
         self._blank = min(self.prs.slide_layouts, key=lambda lay: len(list(lay.iter_cloneable_placeholders())))
         self.warnings = list(self.style.unknown_keys)      # 写了不生效的键：只跑出页脚本的人也要看到
         self.placements = []
+        self.chapter = None         # 页眉章名行（style.header 有 chapter 行时）；page(chapter=) 没给时用它
+        self.meanings = {}          # 页码 → {色值: {类别配色 (方案, 类别)}}：查同页、相邻页同色异义
+        self.fitted = []            # 矩阵表按版心选的字号：[{page, slot, pt}]
 
     @classmethod
     def open(cls, path, style):
@@ -116,29 +120,47 @@ class Deck:
         if not (once and message in self.warnings):
             self.warnings.append(message)
 
-    def page(self, page_type, title='', parent=None, lead=None, header=True):
+    def page(self, page_type, title='', parent=None, lead=None, header=True, chapter=None):
         """新增一页并画页眉。title 是本页节点名（与大纲一字不差），parent 是上级节点名，lead 是副标题，默认不写；
-        红字结论不走 lead，用 p.conclusion()。
+        红字结论不走 lead，用 p.conclusion()。chapter 是页眉章名行（style.header 有 chapter 行时画），不给就用 deck.chapter。
         header=False 不画页眉（满版图、章小结页）；要把标题压在图上时，放图后再调 p.header()。"""
         slide = self.prs.slides.add_slide(self._blank)
         for ph in list(slide.placeholders):     # 接手的稿子可能没有空白版式
             ph._element.getparent().remove(ph._element)
         page = Page(self, slide, page_type, len(self.prs.slides))
         page.title, page.parent, page.lead = title, parent, lead
+        page.chapter = chapter if chapter is not None else self.chapter
         if header:
             page.header()
         return page
 
     def save(self, path):
+        self._check_meanings()
         self.prs.save(path)
         return path
 
+    def _check_meanings(self):
+        """同一颜色在同一页或相邻两页表示两种类别时记警告（一种颜色一类内容，visual-language.md“配色”）。"""
+        seen = set()
+        pages = sorted(self.meanings)
+        for n in pages:
+            for m in (n, n + 1):
+                if m not in self.meanings:
+                    continue
+                for hexv in self.meanings[n].keys() & self.meanings[m].keys():
+                    refs = sorted(self.meanings[n][hexv] | self.meanings[m][hexv])
+                    if len(refs) > 1 and (hexv, tuple(refs)) not in seen:
+                        seen.add((hexv, tuple(refs)))
+                        where = f'第 {n} 页' if m == n else f'第 {n}、{m} 页'
+                        self.warn(f'{where}：{hexv} 同时表示 {"、".join(".".join(r) for r in refs)}，读者会当成同一类；'
+                                  f'换一组颜色，确是同一类就用同一个类别')
 
-class Page:
+
+class Page(Blocks):
     def __init__(self, deck, slide, page_type, number):
         self.deck, self.slide, self.type, self.number = deck, slide, page_type, number
         self.style = deck.style
-        self.title = self.parent = self.lead = None
+        self.title = self.parent = self.lead = self.chapter = None
         self._names = {}
         self._used = set()
 
@@ -175,7 +197,15 @@ class Page:
 
     # ---------- 取值 ----------
     def rgb(self, ref):
-        return RGBColor.from_string(self.style.color(ref).lstrip('#'))
+        hexv = self.style.color(ref)
+        if isinstance(ref, tuple):      # 类别配色：记下这页用它表示哪一类
+            self.deck.meanings.setdefault(self.number, {}).setdefault(hexv, set()).add(tuple(ref))
+        return RGBColor.from_string(hexv.lstrip('#'))
+
+    @property
+    def family(self):
+        """量字宽用的字体（页面中文字体）。"""
+        return self.style.fonts['cjk']
 
     def _size(self, role):
         return Pt(self.style.size(role))
@@ -206,13 +236,17 @@ class Page:
         return out
 
     def runs(self, paragraph, text, size='body', color='text', bold=False):
-        """text 里 **…** 是强调色加粗，__…__ 是所在段落的颜色加粗，^^…^^ 是标题色加粗；不嵌套。"""
+        """text 里 **…** 是强调色加粗，__…__ 是所在段落的颜色加粗，^^…^^ 是标题色加粗；不嵌套。
+        size 是字号级别名；矩阵表按版心选字号时直接给 pt。"""
         fonts = self.style.fonts
+        ppr = paragraph._p.get_or_add_pPr()       # 中文断行：标点不落行首
+        ppr.set('eaLnBrk', '1')
+        ppr.set('hangingPunct', '1')
         for part, mark in self._marked(text):
             r = paragraph.add_run()
             r.text = part
             f = r.font
-            f.name, f.size = fonts.get('latin', fonts['cjk']), self._size(size)
+            f.name, f.size = fonts.get('latin', fonts['cjk']), Pt(size) if isinstance(size, (int, float)) else self._size(size)
             f.bold = bold or mark is not None
             f.color.rgb = self.rgb(MARK_COLORS.get(mark, color))
             rpr = r._r.get_or_add_rPr()
@@ -244,7 +278,7 @@ class Page:
         for kind, text in _items(items):
             size = self.style.size(ITEM_KINDS[kind][0])
             mark = t['headingMark'] if kind == 'h' else ''
-            h += text_height(mark + text, w, size, t['lineSpacing']) + (0.21 if kind == 'h' else 0.07)
+            h += text_height(mark + text, w, size, t['lineSpacing'], self.family, kind in ('h', 'big')) + (0.21 if kind == 'h' else 0.07)
         return h
 
     def _check_fit(self, y, h, est, size_pt, slot):
@@ -284,7 +318,7 @@ class Page:
               shadow=False):
         """单行标签（轴刻度、行名、运算符）：一个文本框一段文字。h 不够时记警告。shadow=True 加柔和投影，只用于照片上的字。"""
         pt = self.style.size(size)
-        self._check_fit(y, h, text_height(text, w, pt, self.style.metrics['text']['lineSpacing']), pt, slot)
+        self._check_fit(y, h, text_height(text, w, pt, self.style.metrics['text']['lineSpacing'], self.family, bold), pt, slot)
         box = self._label(x, y, w, h, text, slot, i, size, color, bold, anchor, align)
         for r in box.shape.text_frame.paragraphs[0].runs if shadow else ():     # rPr 里 effectLst 排在填充之后、字体之前
             r._r.get_or_add_rPr().find(qn('a:solidFill')).addnext(parse_xml(
@@ -324,11 +358,16 @@ class Page:
         不给就用 page() 时给的；什么字都没有时不画页眉线。"""
         hd = self.style.doc['header']
         title, parent, lead = title or self.title, parent or self.parent, lead or self.lead
+        values = {'title': title, 'parent': parent, 'lead': lead, 'chapter': self.chapter}
+        roles = {line['role'] for line in hd.get('lines', [])}
+        if lead and 'lead' not in roles:
+            self.deck.warn(f'第 {self.number} 页：style.json 的页眉没有副标题行，lead 不会画；副标题默认不写，要写就在 header.lines 加 lead 行')
         for bar in hd.get('bars', []):
+            if 'role' in bar and not values.get(bar['role']):      # 跟着某一行标题的色条，那行没字就不画
+                continue
             w = self.style.page_w if bar['wCm'] == 'page' else bar['wCm']
             self.shape('rect', bar['xCm'], bar['yCm'], w, bar['hCm'], bar['color'], slot=bar.get('slot', 'header-bar'))
-        values = {'title': title, 'parent': parent, 'lead': lead}
-        slots = {'title': 'title', 'parent': 'parent-title', 'lead': 'subtitle'}
+        slots = {'title': 'title', 'parent': 'parent-title', 'lead': 'subtitle', 'chapter': 'chapter'}
         for line in hd.get('lines', []):
             text = values[line['role']]
             if not text:
@@ -339,6 +378,26 @@ class Page:
         if rule and any(values.values()):
             self.line(rule['xCm'], rule['yCm'], rule['xCm'] + rule['wCm'], rule['yCm'], rule['color'],
                       rule.get('widthPt', 0.75), slot='header-rule')
+        if hd.get('pageNo'):
+            self.page_number(**hd['pageNo'])
+
+    def page_number(self, xCm, yCm, wCm, hCm, size='body', color='title', bold=True, align='right'):
+        """页码：自动字段，移页后跟着变（style.header.pageNo）。"""
+        tb = self._label(xCm, yCm, wCm, hCm, '', 'page-no', size=size, color=color, align=align, anchor='middle')
+        p = tb.shape.text_frame.paragraphs[0]
+        fonts = self.style.fonts
+        fld = parse_xml(
+            f'<a:fld {nsdecls("a")} id="{{B6F15528-21DE-4FAA-801E-634DDDAF4B2B}}" type="slidenum">'
+            f'<a:rPr lang="zh-CN" sz="{int(self.style.size(size) * 100)}" b="{1 if bold else 0}">'
+            f'<a:solidFill><a:srgbClr val="{self.style.color(color).lstrip("#")}"/></a:solidFill>'
+            f'<a:latin typeface="{fonts.get("latin", fonts["cjk"])}"/><a:ea typeface="{fonts["cjk"]}"/></a:rPr>'
+            f'<a:t>{self.number}</a:t></a:fld>')
+        end = p._p.find(qn('a:endParaRPr'))
+        if end is not None:
+            end.addprevious(fld)
+        else:
+            p._p.append(fld)
+        return tb
 
     # ---------- 形状 ----------
     def shape(self, kind, x, y, w, h, fill, slot, i=None, line=None, alpha=None):
@@ -433,7 +492,8 @@ class Page:
             raise ValueError(f'table：{len(widths)} 个列宽，各行的格数是 {sorted({len(r) for r in rows})}；要一样多')
         cw = [w * wd / sum(widths) for wd in widths]
         show = lambda v: fmt.format(v) if isinstance(v, float) else ('' if v is None else str(v))
-        hs = [max(row_h, max(text_height(show(v), cw[j] - 0.2, size) + 0.06 for j, v in enumerate(r))) for r in rows]
+        hs = [max(row_h, max(text_height(show(v), cw[j] - 0.2, size, 1.15, self.family, i == 0) + 0.06 for j, v in enumerate(r)))
+              for i, r in enumerate(rows)]
         self._check_fit(y, sum(hs), sum(hs), size, slot)
         gf = self.name(self.slide.shapes.add_table(len(rows), len(rows[0]), Cm(x), Cm(y), Cm(w), Cm(sum(hs))), slot)
         t = gf.table
@@ -664,12 +724,13 @@ class Page:
         for r in rows:
             if r[0] == 'title':
                 if r[1]:
-                    th = text_height(self.style.metrics['text']['headingMark'] + r[1], w, self.style.size('heading')) + 0.1
+                    th = text_height(self.style.metrics['text']['headingMark'] + r[1], w, self.style.size('heading'), 1.15,
+                                     self.family, True) + 0.1
                     self.text(x, cy, w, [('h', r[1])], h=th, slot='legend-title')
                     cy += th
                 continue
             _, color, text, symbol, alpha = r
-            rh = max(lg['rowMinCm'], text_height(text, w - off, self.style.size('body')))
+            rh = max(lg['rowMinCm'], text_height(text, w - off, self.style.size('body'), 1.15, self.family))
             self.swatch(x, cy + 0.08, DataColor(color.upper()), 'legend-swatch', k, symbol, alpha)
             self.text(x + off, cy, w - off, [text], h=rh, slot='legend-label', i=k)
             cy += rh

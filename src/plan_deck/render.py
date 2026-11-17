@@ -22,7 +22,7 @@ SCRIPT = '''on run argv
   with timeout of {timeout} seconds
     tell application "Microsoft PowerPoint"
       open POSIX file (item 1 of argv)
-      set p to active presentation
+      set p to presentation (item 3 of argv)
       save p in POSIX file (item 2 of argv) as save as PDF
       close p saving no
     end tell
@@ -38,12 +38,14 @@ def _powerpoint_pdf(pptx, pdf, timeout):
     if sys.platform != 'darwin' or not os.path.isdir(POWERPOINT_APP):
         raise RenderError('powerpoint 引擎要在装了 Microsoft PowerPoint 的 macOS 上用；没有时用 --engine libreoffice，'
                           '交付前再请用户在 PowerPoint 里打开核对')
-    work = os.path.join(os.path.expanduser(POWERPOINT_DATA), 'plan-deck-render', uuid.uuid4().hex)
+    key = uuid.uuid4().hex
+    work = os.path.join(os.path.expanduser(POWERPOINT_DATA), 'plan-deck-render', key)
     os.makedirs(work)
     try:
-        src, out = os.path.join(work, 'deck.pptx'), os.path.join(work, 'deck.pdf')
+        # 文件名唯一，按名字找回这份稿子：别的会话同时用 PowerPoint 时，“当前演示文稿”可能是别人的
+        src, out = os.path.join(work, f'{key}.pptx'), os.path.join(work, f'{key}.pdf')
         shutil.copyfile(pptx, src)
-        res = subprocess.run(['osascript', '-e', SCRIPT.format(timeout=timeout), src, out],
+        res = subprocess.run(['osascript', '-e', SCRIPT.format(timeout=timeout), src, out, f'{key}.pptx'],
                              capture_output=True, text=True, timeout=timeout + 30)
         if res.returncode != 0 or not os.path.isfile(out):
             raise RenderError(f'PowerPoint 导出 PDF 失败：{(res.stderr or res.stdout).strip()[-600:]}'
