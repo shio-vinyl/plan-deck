@@ -1,0 +1,56 @@
+{
+  "contract": "plan-deck-style",
+  "schema_version": 1,
+  "name": "通栏页眉预设（16:9，33.87×19.05 cm）",
+  "purpose": "practical",
+  "page": {"widthCm": 33.867, "heightCm": 19.05},
+  "body": {"leftCm": 1.57, "rightCm": 1.57, "topCm": 4.87, "bottomCm": 1.3},
+  "grid": {"columns": 12, "gutterCm": 0.4},
+  "fonts": {"cjk": "微软雅黑", "latin": "微软雅黑"},
+  "type": {"body": 12, "heading": 15, "title": 18, "key": 18, "conclusion": 22, "parent": 26, "figure": 30},
+  "palette": {
+    "navy": "#194461", "slate": "#2E4A5F", "steel": "#3F6583", "steelMid": "#4E7491", "steelLight": "#6C8DA6",
+    "olive": "#6C917A", "tan": "#A8895A", "teal": "#0D7578", "ochre": "#B5722B", "brick": "#8B2E25", "crimson": "#A61C1C",
+    "grey": "#7F7F7F"
+  },
+  "colors": {
+    "title": "{palette.navy}",
+    "titleSub": "{palette.slate}",
+    "chapter": "{palette.steelMid}",
+    "headerBar": "{colors.title}",
+    "emphasis": "#C00000",
+    "text": "#333333",
+    "muted": "#5A6B78",
+    "neutral": "{palette.grey}",
+    "line": "#C9D2DA",
+    "rule": "#D6DFE8",
+    "gridline": "#E5E5E5",
+    "fill": "#F2F2F2",
+    "tint": "#EEF2F5",
+    "emphasisTint": "#F6E4E2",
+    "highlightFill": "{colors.emphasisTint}",
+    "white": "#FFFFFF"
+  },
+  "classes": {
+    "类别": {"一": "{palette.navy}", "二": "{palette.olive}", "三": "{palette.tan}", "四": "{palette.teal}",
+           "五": "{palette.steelMid}", "六": "{palette.ochre}"},
+    "分档": {"一档": "{palette.steelLight}", "二档": "{palette.steel}", "三档": "{palette.brick}", "四档": "{palette.crimson}"}
+  },
+  "header": {
+    "bars": [
+      {"slot": "header-bar", "xCm": 0, "yCm": 0, "wCm": "page", "hCm": 0.36, "color": "headerBar"},
+      {"slot": "header-accent", "xCm": 1.57, "yCm": 1.3, "wCm": 0.19, "hCm": 1.0, "color": "title", "role": "parent"}
+    ],
+    "lines": [
+      {"role": "chapter", "xCm": 2.08, "yCm": 0.62, "wCm": 30.2, "hCm": 0.62, "size": "body", "color": "chapter", "bold": true},
+      {"role": "parent", "xCm": 2.08, "yCm": 1.2, "wCm": 30.2, "hCm": 1.15, "size": "parent", "color": "title", "bold": true},
+      {"role": "title", "xCm": 2.08, "yCm": 2.3, "wCm": 30.2, "hCm": 0.95, "size": "title", "color": "titleSub", "bold": true}
+    ],
+    "rule": {"xCm": 1.57, "yCm": 3.33, "wCm": 30.72, "color": "rule", "widthPt": 1.5},
+    "pageNo": {"xCm": 29.24, "yCm": 17.95, "wCm": 3.05, "hCm": 0.62, "size": "body", "color": "title", "bold": true, "align": "right"}
+  },
+  "conclusion": {"xCm": 1.57, "yCm": 3.42, "wCm": 30.72, "hCm": 1.25},
+  "strokes": {"arrowColor": "title"},
+  "table": {"highlightFill": "emphasisTint"},
+  "blocks": {"bodyFill": "tint"}
+}

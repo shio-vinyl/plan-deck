@@ -27,12 +27,15 @@ OFFICE = set('4472C4 ED7D31 A5A5A5 FFC000 5B9BD5 70AD47 8FAADC B4C7E7 DAE3F3 2F5
 GRID = (32, 18)
 SIMILAR = .78       # 两页版面网格重合这么多算高度相似；自定算法，看量级
 EQUAL_PAGE = .7     # 一页七成以上的框等尺寸
+# 中间层和铺满：同五份人做的稿子（2026-11 算），只作线索。同口径下 AI 工作稿约 0.14—0.22、2%—7%
+MID_REFERENCE, SHORT_REFERENCE = (.38, .63), (0, .02)
 # 五份人做的规划汇报的范围（低, 高），只作线索
 REFERENCE = {
     'adjacentColorOverlap': (.25, .33), 'officeColorShare': (.36, .56), 'fillSaturation': (.53, .79), 'tintedPaleShare': (.01, .24),
     'blackLineShare': (.14, .60), 'equalSizePages': (.12, .46), 'labelRowPages': (0, .06), 'similarAdjacentPages': (.06, .26),
     'commonestLayoutShare': (.12, .18), 'bleedPerPage': (.20, .73), 'largeImagePages': (.27, .70), 'noImagePages': (.29, .63),
     'charsPerPage': (196, 387), 'bigRedPages': (.08, .33), 'smallTextShare': (0, 0),
+    'midLayerShare': MID_REFERENCE, 'shortPages': SHORT_REFERENCE,
 }
 LABELS = {
     'adjacentColorOverlap': '相邻两页的彩色重合度', 'officeColorShare': '彩色填充里 Office 默认色的比例', 'fillSaturation': '填充饱和度（按面积）',
@@ -40,8 +43,12 @@ LABELS = {
     'labelRowPages': '左色块＋右底框成行的页', 'similarAdjacentPages': '相邻页版面高度相似', 'commonestLayoutShare': '最常见的一种版面占全册',
     'bleedPerPage': '每页伸出页边的形状', 'largeImagePages': '图占页面超 25% 的页', 'noImagePages': '完全没有图的页',
     'charsPerPage': '每页字数（中位）', 'bigRedPages': '标题下大号红字的页', 'smallTextShare': '12 磅以下字的比例',
+    'midLayerShare': '正文里 14 磅以上字的比例（中间层）', 'shortPages': '正文止于页高 75% 以上的页',
 }
 CHARS = re.compile(r'\S')
+HEADER_BAND = .2        # 页面上部这一带是页眉和红字结论，不算正文
+MID_PT = 13.9           # 中间层：折算到 19.05 cm 页高 14 磅以上
+SHORT_AT = .75          # 正文下边在页高这个比例以上算没铺满
 
 
 def _mods(hexv, el):
@@ -134,7 +141,7 @@ def _page(slide, theme, W, H, k):
     """一页的形状和文字。k：把字号折算到 19.05 cm 页高。"""
     items, runs = [], []
 
-    def add_text(tb):
+    def add_text(tb, y=0.0):
         n = 0
         for r in tb.iter(A + 'r'):
             t = r.find(A + 't')
@@ -144,7 +151,7 @@ def _page(slide, theme, W, H, k):
             rp = r.find(A + 'rPr')
             sz = int(rp.get('sz')) / 100 * k if rp is not None and rp.get('sz') else None
             fill = rp.find(A + 'solidFill') if rp is not None else None
-            runs.append({'chars': chars, 'pt': sz, 'color': theme.color(fill) if fill is not None else None})
+            runs.append({'chars': chars, 'pt': sz, 'color': theme.color(fill) if fill is not None else None, 'y': y})
             n += chars
         return n
 
@@ -167,7 +174,7 @@ def _page(slide, theme, W, H, k):
                 it['line'] = theme.color(style.find(A + 'lnRef'))
         tb = c.find(P + 'txBody')
         if tb is not None:
-            it['chars'] = add_text(tb)
+            it['chars'] = add_text(tb, box[1])
         if kind == 'graphicFrame' and c.find('.//' + A + 'tbl') is not None:
             it['kind'] = 'table'
             for tc in c.iter(A + 'tc'):
@@ -177,13 +184,33 @@ def _page(slide, theme, W, H, k):
                     if color:
                         it.setdefault('cells', []).append(color)
                 if tc.find(A + 'txBody') is not None:
-                    it['chars'] += add_text(tc.find(A + 'txBody'))
+                    it['chars'] += add_text(tc.find(A + 'txBody'), box[1])
                 for side in ('lnL', 'lnR', 'lnT', 'lnB'):
                     ln = pr.find(A + side) if pr is not None else None
                     if ln is not None and ln.find(A + 'solidFill') is not None:
                         it.setdefault('lines', []).append(theme.color(ln.find(A + 'solidFill')))
         items.append(it)
     return items, runs
+
+
+def content_page(items, runs):
+    """要查铺满和中间层的内容页：有一定字数，不是满版图页（封面、目录、章节页、章小结页字少或满版）。"""
+    full = any(i['kind'] == 'pic' and i['w'] > .95 and i['h'] > .9 for i in items)
+    return not full and sum(r['chars'] for r in runs) >= 80
+
+
+def content_bottom(items):
+    """正文下边在页高的比例：页眉和红字结论那一带以下的形状，不算整页底图、页边细竖条和页码。没有正文时 None。"""
+    bs = [i['y'] + i['h'] for i in items
+          if i['y'] + i['h'] > HEADER_BAND + .06 and i['y'] < .97 and not (i['w'] > .95 and i['h'] > .9)
+          and not (i['w'] < .02 and i['h'] > .5) and not (i['y'] > .88 and i['kind'] != 'pic' and i['chars'] <= 3)]
+    return min(1.0, max(bs)) if bs else None
+
+
+def mid_layer(runs):
+    """页眉带以下的正文：(总字数, 14 磅以上的字数)。"""
+    body = [r for r in runs if r['pt'] and r['y'] >= HEADER_BAND]
+    return sum(r['chars'] for r in body), sum(r['chars'] for r in body if r['pt'] >= MID_PT)
 
 
 def _colored(c):
@@ -206,13 +233,14 @@ def _equal_share(boxes):
     return sum(any(o is not a and abs(o['w'] - a['w']) < .006 and abs(o['h'] - a['h']) < .008 for o in boxes) for a in boxes) / len(boxes)
 
 
-def _label_rows(items):
-    """窄实色块右侧紧贴一块底框的行数。"""
+def _label_rows(items, with_text=False):
+    """窄实色块右侧紧贴一块底框的行数。with_text=True 时底框里要有字（inspect 用，泳道头和泳道底带不算）。"""
     rows = 0
     for a in items:
         if not a['fill'] or not a['chars'] or a['y'] <= .12 or a['w'] >= .2 or a['h'] <= .05 or colorsys.rgb_to_hls(*(int(a['fill'][i:i + 2], 16) / 255 for i in (0, 2, 4)))[1] >= .6:
             continue
-        rows += any(b is not a and b['fill'] and abs(b['x'] - a['x'] - a['w']) < .012 and abs(b['y'] - a['y']) < .012 and abs(b['h'] - a['h']) < .02 and b['w'] > a['w'] for b in items)
+        rows += any(b is not a and b['fill'] and abs(b['x'] - a['x'] - a['w']) < .012 and abs(b['y'] - a['y']) < .012 and abs(b['h'] - a['h']) < .02 and b['w'] > a['w']
+                    and (b['chars'] or not with_text) for b in items)
     return rows
 
 
@@ -341,6 +369,7 @@ def audit(path, against=None):
 
     equal_pages, sized, label_pages, bleed, large, none, chars, big_red = 0, 0, 0, 0, 0, 0, [], 0
     pt_total, pt_small = 0, 0
+    body_chars, mid_chars, short, checked = 0, 0, 0, 0
     rows = []
     for idx, p in enumerate(pages):
         boxes, pics = _boxes(p['items']), _pictures(p['items'])
@@ -370,6 +399,17 @@ def audit(path, against=None):
             flags.append(f'和上一页版面相似（第 {pages[idx - 1]["n"]} 页）')
         if not pics:
             flags.append('没有图')
+        if content_page(p['items'], p['runs']):
+            checked += 1
+            bottom = content_bottom(p['items'])
+            n_body, n_mid = mid_layer(p['runs'])
+            body_chars += n_body
+            mid_chars += n_mid
+            if bottom is not None and bottom < SHORT_AT:
+                short += 1
+                flags.append(f'正文止于页高 {bottom:.0%}')
+            if n_body >= 200 and not n_mid and pic_area < .15:
+                flags.append(f'正文 {n_body} 字没有 14 磅以上的字（缺中间层）')
         rows.append({'page': p['n'], 'chars': total, 'imageArea': round(pic_area, 2), 'bigRed': red, 'flags': flags})
 
     colored_fills = sum(fills.values())
@@ -389,6 +429,8 @@ def audit(path, against=None):
         'charsPerPage': round(median(chars)) if chars else 0,
         'bigRedPages': round(big_red / n, 2),
         'smallTextShare': round(pt_small / (pt_total or 1), 2),
+        'midLayerShare': round(mid_chars / (body_chars or 1), 2),
+        'shortPages': round(short / (checked or 1), 2),
     }
     table = [{'metric': key, 'label': LABELS[key], 'value': v, 'reference': list(REFERENCE[key]),
               'outside': not REFERENCE[key][0] <= v <= REFERENCE[key][1]} for key, v in metrics.items()]

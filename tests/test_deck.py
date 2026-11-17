@@ -7,6 +7,8 @@ from contextlib import redirect_stdout
 from helpers import EXAMPLE_STYLE, TempDir, make_release, style_doc
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE
+from pptx.oxml import parse_xml
+from pptx.oxml.ns import nsdecls
 from pptx.util import Cm
 
 from plan_deck import Deck, MapRelease, Style, StyleError, notes_frame, replace_text
@@ -274,7 +276,7 @@ class CliTest(unittest.TestCase):
             deck.save(path)
             code, out = self.run_cli('inspect', path, '--style', EXAMPLE_STYLE, '--brief')
         self.assertEqual(code, 0, out['problems'])
-        got = {(w['shape'], w['warning'].split('：')[0]) for w in out['warnings']}
+        got = {(w['shape'], w['warning'].split('：')[0]) for w in out['warnings'] if w['shape'] != 'slide'}     # 版面铺满另测
         self.assertEqual(got, {('pd:section-overview:col:1', '整段标红'), ('pd:section-overview:col:2', '整栏标红'),
                                ('pd:section-overview:col:2', '页面上有页码引用“第 12 页”，页序一调就对不上'),
                                ('pd:section-overview:subtitle', '副标题像一句解释')})
@@ -326,8 +328,15 @@ class CliTest(unittest.TestCase):
             path = os.path.join(tmp, 'deck.pptx')
             deck.save(path)
             prs = Presentation(path)
-            shadowed = prs.slides[1].shapes.add_shape(1, Cm(x0), Cm(y0 + 12), Cm(5), Cm(2))
+            raw = prs.slides[1].shapes.add_shape(1, Cm(x0), Cm(y0 + 12), Cm(5), Cm(2))
+            raw.name = 'raw'        # 直接 add_shape 引用主题效果；运行时建的模板里主题效果已清空，不带阴影
+            shadowed = prs.slides[1].shapes.add_shape(1, Cm(x0 + 6), Cm(y0 + 12), Cm(5), Cm(2))
             shadowed.name = 'shadowed'
+            shadowed.text_frame.text = '无填充的框里的字'
+            shadowed.fill.background()
+            shadowed._element.spPr.append(parse_xml(
+                f'<a:effectLst {nsdecls("a")}><a:outerShdw blurRad="40000" dist="20000" dir="5400000">'
+                '<a:srgbClr val="000000"><a:alpha val="38000"/></a:srgbClr></a:outerShdw></a:effectLst>'))
             prs.save(path)
             code, out = self.run_cli('inspect', path, '--brief')
         by_page = {}
@@ -335,7 +344,8 @@ class CliTest(unittest.TestCase):
             by_page.setdefault(w['page'], []).append((w['shape'], w['warning']))
         self.assertTrue(any('同排 3 个等尺寸' in w for _, w in by_page[1]), by_page)
         self.assertFalse(any('有阴影' in w for _, w in by_page[1]), by_page)
-        self.assertTrue(any(s == 'shadowed' and '有阴影' in w for s, w in by_page[2]), by_page)
+        self.assertTrue(any(s == 'shadowed' and '阴影落在字上' in w for s, w in by_page[2]), by_page)
+        self.assertFalse(any(s == 'raw' and '阴影' in w for s, w in by_page[2]), by_page)
 
     def test_inspect_no_emphasis(self):
         """字多却没有强调色的页警告，表格也算；有强调色、字少、隐藏页不报；没给 style 时认偏红的字。"""
@@ -444,7 +454,7 @@ class CliTest(unittest.TestCase):
             code, out = self.run_cli('inspect', path, '--style', EXAMPLE_STYLE, '--brief')
             texts = [sh.text_frame.text for sh in Presentation(path).slides[0].shapes if sh.has_text_frame]
         self.assertEqual(code, 0, out['problems'])
-        self.assertEqual({(w['shape'], w['warning'].split('：')[0]) for w in out['warnings']},
+        self.assertEqual({(w['shape'], w['warning'].split('：')[0]) for w in out['warnings'] if w['shape'] != 'slide'},
                          {('pd:section-overview:col:2', '整段标红')})
         for text in texts:
             for mark in ('**', '__', '^^'):

@@ -9,6 +9,9 @@ SKILL.md 和 docs/       工作流和判断规则
 src/plan_deck/
   style、theme、fonts   视觉系统：读 style.json，从 gis-composer 取地图主题，核对字体
   deck、template        页眉和组件；新建稿子的模板
+  blocks                正文组件：标签行、栏头并列、通栏、箭头链和节点链、泳道、文件摘录、矩阵表、台阶
+  preset、presets/      视觉系统预设，生成项目的 style.json
+  measure               按字宽估文字高度（本机有字体时按真实字宽）
   maps                  读地图发布版、放图、图例
   inspect、words        每次出页跑的检查；页面文字的线索词表
   audit                 定稿前的只读体检和两版文字比对
@@ -60,12 +63,23 @@ src/plan_deck/
 - **`palette`**（可选）：基础色板，只供 `colors`、`classes` 引用（`{palette.<名字>}`），出页代码不能直接用。色相名（“蓝”“灰”）放这里，页面上按含义起名。
 - **`colors`**：页面的颜色记号，按含义起名。`title`、`emphasis`、`text`、`muted`、`line`、`white` 必须有；值是 `#RRGGBB`，或引用 `{colors.<名字>}`、`{palette.<名字>}`、`{theme.<路径>}`。`{theme.…}` 的路径照 `theme resolve` 输出的字段走：`{theme.palette.highlight}`（地图强调色）、`{theme.sheet.accent}`、`{theme.classes.<方案名>.<code>}`。
 - **`classes`**：命名的类别配色，`{方案名: {code: 颜色}}`，同一含义全册同色（分期、更新方式、权属……）。组件里写 `(方案名, code)` 取色。地图主题里的 `classes` 全部可以直接用，名字不变；`style.json` 只写页面独有的方案（比如图表系列），和主题同名的方案再写一份就报错（两处定色）。
-- **`header`**：页眉几何。`bars` 是色条，`lines` 按顺序画上级标题（`parent`）、本页标题（`title`）和可选的副标题（`lead`），可选 `rule` 细线。各项目的页眉不同（研究稿照原稿、新起稿按默认样式），所以写成数据，组件只照着画。
+- **`header`**：页眉几何。`bars` 是色条，`lines` 按顺序画章名（`chapter`，通栏页眉才有）、上级标题（`parent`）、本页标题（`title`）和可选的副标题（`lead`），可选 `rule` 细线和 `pageNo` 自动页码（`xCm`、`yCm`、`wCm`、`hCm`、`size`、`color`、`bold`、`align`）。色条写了 `role` 时跟着那一行画，那一行没字就不画（如节名旁的竖色条）。章名取 `deck.page(..., chapter=)`，没给时取 `deck.chapter`。各项目的页眉不同（研究稿照原稿、新起稿按预设），所以写成数据，组件只照着画。
 - **`conclusion`**（要用红字结论时写）：`p.conclusion()` 的默认位置，`xCm`、`yCm`、`wCm`、`hCm`，放在标题线下。不写时每次调用都要给坐标。它不是页眉的一部分，去 AI 味版可以逐页换位置。
-- **组件度量**（`text`、`strokes`、`table`、`chart`、`legend`、`node`、`ledger` 段）有默认值，`style.json` 写了就覆盖，比如表头色、表格行线、图表文字色（`chart.text`，深色底上写浅色）、箭头线宽、图例色块尺寸。
+- **组件度量**（`text`、`strokes`、`table`、`chart`、`legend`、`node`、`ledger`、`blocks` 段）有默认值，`style.json` 写了就覆盖，比如表头色、表格行线、图表文字色（`chart.text`，深色底上写浅色）、箭头线宽、图例色块尺寸、泳道连线（`strokes.linkPt`、`linkColor`）。`blocks` 是正文组件的颜色和间距：标签和栏头的实底（`labelFill`）、正文浅底（`bodyFill`，默认 `fill`，预设里是 `tint`）、红虚线框（`markColor`、`markPt`）、泳道底和阶段条、高亮格的字色，都按颜色名。
+- **校验命名**：`colors` 的键和 `classes` 的类别名按色相起名（navy、lightBlue、深蓝）时警告；同一个色值在几组类别色里都用时给 info。字号级差：正文到上一级不到 1.2 倍、小标题以上各级不到 1.15 倍时警告。
 - **其他键**：`name`、`purpose` 只作记录，运行时不读。运行时不认识的键（拼错的、以为有的能力）写了也不生效，`style check` 和 `deck.warnings` 都给警告；`page`、`body`、`grid`、`fonts.cjk` 和页眉的几何缺项时报错。
 
 **为什么用 JSON**：读 YAML 要多装 PyYAML，Python 3.10 也没有标准库的 TOML；gis-composer 的项目主题、map-legend 等约定都是 JSON，形状一致（`widthCm`、`palette.classes`）便于对照；agent 读写 JSON 不易出错。JSON 不能写注释，取舍和理由写在 `style.md` 或 `STYLE.md`（见本节开头）。
+
+### 预设
+
+起稿时不手写页眉几何和字号阶梯，从预设生成：
+
+```
+plan-deck style init style.json --preset banner [--page 52.8x29.7] [--name 项目名]
+```
+
+`banner` 是通栏页眉（`visual-language.md`“页面框架”）：33.867×19.05 cm，页眉是顶部深色通栏、章名行、节名加竖色条、页名、细线、红字结论和右下页码；字号 12（正文）、15（小标题）、18（页名、色块关键词 `key`）、22（红字结论）、26（节名）、30（大字 `figure`）；颜色按含义起名，`palette` 放色相，`classes` 给两组模板（`类别`：一至六，`分档`：一档至四档），按项目内容改名（如“三类转换”）。换页面尺寸时横向几何按页宽、纵向几何按页高等比，字号和线宽按页高等比（取到 0.5 磅）。生成后照常写 `style.md`，项目的颜色和类别名照内容改。预设文件在 `src/plan_deck/presets/`，`Deck(build('banner'))` 也可以直接用（`plan_deck.preset.build`）。
 
 ### 从地图主题取色
 
@@ -140,12 +154,16 @@ deck.save('deck.pptx'); print(deck.warnings, deck.placements)
 
 | 组件 | 说明 |
 |---|---|
-| `page(页型, title, parent, lead, header=True)` | 新页并按 `style.header` 画页眉；`header=False` 不画（满版图、章小结页），放图后调 `p.header()` 可以把页眉画在图上；什么字都没有时不画页眉线 |
+| `page(页型, title, parent, lead, header=True, chapter=None)` | 新页并按 `style.header` 画页眉（`chapter` 是通栏页眉的章名行，不给用 `deck.chapter`）；`header=False` 不画（满版图、章小结页），放图后调 `p.header()` 可以把页眉画在图上；什么字都没有时不画页眉线 |
 | `conclusion` | 红字结论：一行带事实的判断，字号 `conclusion`、强调色加粗，默认位置取 `style.json` 的 `conclusion`，可以给坐标；放不下时记警告 |
-| `text` / `label` | 正文块（条目：正文、`('h', 小标题)`、`('m', 次要)`、`('big', 大号数字)`；`**…**` 强调色加粗，`__…__` 所在段落的颜色加粗，`^^…^^` 标题色加粗，不嵌套；`__`、`^^` 没配对或中间为空时报错并指出那段文字，`**` 没配对不报错，后面的字都算强调）/ 单段标签；按字宽估高度（汉字 1、ASCII 0.6），返回 Box；放不下或排出页面时记进 `deck.warnings`（按字宽估算，窄栏混排可能差一两行，只警告，不改版面）。`label(shadow=True)` 加柔和投影，只用于照片上的字 |
+| `text` / `label` | 正文块（条目：正文、`('h', 小标题)`、`('m', 次要)`、`('big', 大号数字)`；`**…**` 强调色加粗，`__…__` 所在段落的颜色加粗，`^^…^^` 标题色加粗，不嵌套；`__`、`^^` 没配对或中间为空时报错并指出那段文字，`**` 没配对不报错，后面的字都算强调）/ 单段标签；按字宽估高度（本机找得到页面字体时按真实字宽并避头，否则汉字 1、ASCII 0.6；`PLAN_DECK_MEASURE=estimate` 强制估算），返回 Box；放不下或排出页面时记进 `deck.warnings`（按字宽估算，窄栏混排可能差一两行，只警告，不改版面）。`label(shadow=True)` 加柔和投影，只用于照片上的字 |
 | `table` | 表头深色、行间细线（`table.lineColor`、`linePt`）、数字右对齐、合计行、提示行；按单元格换行估行高 |
 | `chart` | 原生图表：`bar`、`column`（簇状、堆积）、`line`、`area`、`doughnut`、`pie`，或同类的 `XL_CHART_TYPE` 成员；系列色按名字取，`doughnut`、`pie` 按类别给色；文字色取 `chart.text`，折线线宽取 `chart.linePt`；`color_point`、`label_series` 微调。单系列的柱形、条形图 PowerPoint 会拿系列名自动出标题，运行时没有处理 |
 | `ledger` | 账算式：同尺寸色块装数字，中间放运算符 |
+| `rows` / `columns` / `banner` / `block_arrow` | 标签行、实色栏头并列、结论通栏、实心箭头；按内容定高，给 `bottom` 时铺到底（默认版心底） |
+| `chevrons` / `flow` / `lanes` / `steps` | 粗箭头链、实色节点链（3 磅粗箭头，节点下可挂说明）、泳道（连线端点粘在节点上）、分档台阶 |
+| `excerpt` | 文件摘录图：按原图比例裁剪（不改原图）、细线边框、红色虚线框、图注 |
+| `matrix` | 矩阵表：两行合并表头、实色行头列、类别色列头、高亮格；在正文 1—1.25 倍里取放得下的最大字号铺满，选的字号记在 `deck.fitted` |
 | `node` / `arrow` / `shape` / `line` / `band` | 图示节点、全册一个样式的箭头、标记形状（`rect`、`oval`、`diamond`，其他直接传 `MSO_SHAPE` 成员）、连线、照片上垫字的渐隐暗带 |
 | `map` / `legend` / `picture` | 发布版里的地图（按 `print` 放、核对，未过 QA、主题已变或图面字体不是 `fonts.map` 时警告）/ 可编辑图例 / 照片截图（默认撑满槽位可能留白；`fit='cover'` 铺满并裁掉多出的部分，用于满版图） |
 | `notes` | 讲稿备注 |
@@ -153,16 +171,19 @@ deck.save('deck.pptx'); print(deck.warnings, deck.placements)
 
 新建的稿子，模板也随项目：主题字体、主题色取 `style.json`，版式占位符按页面尺寸缩放，同事在 PowerPoint 里新建文本框、新建页时不是 Calibri 黑字。主题里 `script="Hans"` 的字体要一起改，否则 PowerPoint 的中文仍是宋体。组件的字体和颜色都显式写，不受主题影响。
 
+颜色参数可以写颜色名、类别配色 `(方案, 类别)`，或方案名（逐项轮流取这组颜色）。类别配色在 `rgb()` 里按页记下，`deck.save()` 时同一颜色在同一页或相邻页表示两类的记警告。段落都开中文断行，标点不落行首。`Deck()` 收 `style.json` 路径、`Style` 或已读入的字典。
+
 **什么进运行时：** 否则会静默出错、在真实 PowerPoint 上踩过且每个脚本都会忘、或需要跨页跨文件的状态，这三种才进；其余写文档或配方，用 `p.slide` 和 python-pptx 自己写。
 
 命令行（`python3 <仓库>/bin/plan-deck …`，或 `pip install -e <仓库>` 后用 `plan-deck`），输出 JSON，有问题时退出码 1：
 
 ```
 plan-deck style check style.json              校验视觉系统，列出解析后的颜色（含来源）、类别配色、栏位、地图主题、警告和 info
+plan-deck style init style.json --preset banner [--page 宽x高] [--name 项目名] [--force]   从预设生成 style.json，已存在时不覆盖
 plan-deck maps check <composer 项目> --release v1 [--strict]   逐张核对发布版：哈希、legend.json 版本、PNG 像素与 print、QA 结论
 plan-deck offcanvas deck.pptx… --out 目录 [--render 32,58|24-31|all] [--engine libreoffice|powerpoint] [--dpi 100] [--crop 0.2]   版面外审计，见“画布外对象”；有文件没审计、对象没读全或渲染失败时退出码 1
-plan-deck inspect deck.pptx [--style style.json] [--brief]   页面与形状清单（含组内形状，每个形状标 placement）；problems 影响退出码（页面绝不出现的用语、小字、重名、画布外对象、悬空动画），warnings 不影响（版面和文字线索，不查隐藏页），每条说明了要看什么
-plan-deck audit deck.pptx [--against 另一版.pptx] [--brief]   只读体检（docs/humanize.md）：全册指标和参考范围、逐页标记（框等尺寸、左色块右底框、和上一页版面相似、没有图）、页面绝不出现的用语（problems，影响退出码）、文字线索（讨论口语、单字动词接术语）；--against 逐页比两版文字
+plan-deck inspect deck.pptx [--style style.json] [--brief]   页面与形状清单（含组内形状，每个形状标 placement）；problems 影响退出码（页面绝不出现的用语、小字、重名、画布外对象、悬空动画），warnings 不影响（版面和文字线索，不查隐藏页：含正文止于页高 75% 以上、缺 14 磅以上的中间层、箭头压字、标签行过多，见 patterns.md“检查”），每条说明了要看什么
+plan-deck audit deck.pptx [--against 另一版.pptx] [--brief]   只读体检（docs/humanize.md）：全册指标和参考范围（含中间层比例、未铺满的页）、逐页标记（框等尺寸、左色块右底框、和上一页版面相似、没有图、正文止于页高 75% 以上、缺中间层）、页面绝不出现的用语（problems，影响退出码）、文字线索（讨论口语、单字动词接术语）；--against 逐页比两版文字
 plan-deck clean deck.pptx 副本.pptx [--pattern 正则] [--drop-hidden] [--force]   另存副本，清掉备注里的标签行、待确认和内部说法；列出多页相同的讲稿和页面文字里的过程信息
 plan-deck render deck.pptx --out renders/ [--engine powerpoint|libreoffice] [--style style.json]   转 pdf 和逐页 png，列出实际嵌入的字体
 ```
@@ -211,9 +232,9 @@ plan-deck render deck.pptx --out renders/ [--engine powerpoint|libreoffice] [--s
 渲染图只有版面内：版面外、跨边的部分、裁掉的部分不在图上，隐藏页 LibreOffice 也不出（见“画布外对象”）。`plan-deck render` 把 pptx 转成 pdf，再用 pdftoppm 出逐页 png 交给 agent 看，并用 pdffonts 列出 pdf 里实际嵌入的字体；给了 `--style` 时核对页面字体有没有被换掉。两种引擎：
 
 - **libreoffice**：随时可用，出页过程中反复看。缺字体会换字或漏字，看图前先确认字体可用或已做映射（见 `AGENTS.md`）。表格行高、图表标签位置、字体替换和 PowerPoint 不完全一样。
-- **powerpoint**：macOS 上装了 Microsoft PowerPoint 时，用 AppleScript 让 PowerPoint 另存为 PDF，就是汇报现场的样子，**交付前必须过一遍**。PowerPoint 是沙盒应用，读写沙盒外的文件会弹授权框，所以运行时先把 pptx 复制进它的容器目录（`~/Library/Containers/com.microsoft.Powerpoint/Data/plan-deck-render/`），导出后取回并删除临时文件；第一次运行时 macOS 可能要求允许终端控制 PowerPoint。Windows 上可以用同样思路走 PowerPoint 的 COM 接口（`Presentation.SaveAs(..., 32)` 存 PDF），还没做；没有 PowerPoint 的机器上自动化不了，交付时请用户在 PowerPoint 里打开逐页看，并在交付说明里写明没有核对过。
+- **powerpoint**：macOS 上装了 Microsoft PowerPoint 时，用 AppleScript 让 PowerPoint 另存为 PDF，就是汇报现场的样子，**交付前必须过一遍**。PowerPoint 是沙盒应用，读写沙盒外的文件会弹授权框，所以运行时先把 pptx 复制进它的容器目录（`~/Library/Containers/com.microsoft.Powerpoint/Data/plan-deck-render/`），导出后取回并删除临时文件。复制进去的文件名唯一，按名字取回这份演示文稿再导出，不取“当前演示文稿”：几个会话同时渲染时，当前演示文稿可能是别人的（实测串过稿）；第一次运行时 macOS 可能要求允许终端控制 PowerPoint。Windows 上可以用同样思路走 PowerPoint 的 COM 接口（`Presentation.SaveAs(..., 32)` 存 PDF），还没做；没有 PowerPoint 的机器上自动化不了，交付时请用户在 PowerPoint 里打开逐页看，并在交付说明里写明没有核对过。
 
 PowerPoint 和 LibreOffice 渲染不一样、已在运行时处理的两处（在真实项目里用 powerpoint 引擎查出来的）：
 
 - 图表文字只写西文字体时，PowerPoint 的中文落回默认字体（宋体）；组件给图表的标题、图例、刻度、数据标签都同时写西文和东亚字体。`render --style` 发现 PDF 里有 `style.json` 没定的字体会警告。
-- python-pptx 的自动形状带主题样式引用（`effectRef`），PowerPoint 会画出阴影；组件去掉了样式引用，线和填充都显式写。
+- python-pptx 的自动形状带主题样式引用（`effectRef`），PowerPoint 和 LibreOffice 都会画出阴影，框没有填充时阴影落在字上；组件去掉了样式引用，线和填充都显式写。新建稿子的主题效果样式也清空了，脚本里直接 `add_shape`、同事在 PowerPoint 里新建的形状同样不带阴影；接手的旧稿主题不动，`inspect` 按主题实际有没有阴影报。

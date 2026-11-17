@@ -1,6 +1,7 @@
 """plan-deck 命令行。输出 JSON（--text 时输出给人看的摘要）；有错时退出码 1。
 
   plan-deck style check <style.json>
+  plan-deck style init <style.json> --preset banner [--page 52.8x29.7] [--name 项目名] [--force]
   plan-deck maps check <composer 项目> --release <版本> [--strict]
   plan-deck inspect <deck.pptx> [--style <style.json>] [--brief]
   plan-deck audit <deck.pptx> [--against <另一版.pptx>] [--brief]
@@ -19,6 +20,7 @@ from .inspect import inspect
 from .maps import MapError, MapRelease
 from .offcanvas import CROP_MIN, run as run_offcanvas
 from .render import RenderError, render
+from . import preset
 from .style import Style, StyleError
 
 
@@ -41,6 +43,12 @@ def main(argv=None):
     st = sub.add_parser('style', help='项目视觉系统').add_subparsers(dest='sub', required=True)
     sc = st.add_parser('check', help='校验 style.json，列出解析后的颜色、类别配色、栏位和警告')
     sc.add_argument('path')
+    si = st.add_parser('init', help='从预设生成项目的 style.json：页眉、字号阶梯、按含义命名的配色都写好，换页面尺寸时等比换算')
+    si.add_argument('path', help='要写出的 style.json；已存在时不覆盖')
+    si.add_argument('--preset', required=True, choices=preset.names())
+    si.add_argument('--page', help='页面尺寸 宽x高（cm），如 52.8x29.7；不给就用预设的 33.867x19.05')
+    si.add_argument('--name', help='写进 name 的项目名（只作记录）')
+    si.add_argument('--force', action='store_true', help='已存在时覆盖')
     mp = sub.add_parser('maps', help='地图发布版').add_subparsers(dest='sub', required=True)
     mc = mp.add_parser('check', help='逐张核对发布版的图：哈希、legend.json 版本、PNG 像素与 print')
     mc.add_argument('project')
@@ -76,6 +84,22 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     try:
+        if a.cmd == 'style' and a.sub == 'init':
+            page = None
+            if a.page:
+                try:
+                    page = tuple(float(v) for v in a.page.lower().replace('×', 'x').split('x'))
+                    assert len(page) == 2 and min(page) > 0
+                except (ValueError, AssertionError):
+                    _out({'ok': False, 'error': 'BAD_PAGE', 'message': f'--page 写成 宽x高（cm），如 52.8x29.7，实际是 {a.page!r}'})
+                    return 1
+            try:
+                s = preset.init(a.preset, a.path, page, a.name, a.force)
+            except FileExistsError as e:
+                _out({'ok': False, 'error': 'EXISTS', 'message': str(e)})
+                return 1
+            _out({'ok': True, 'written': a.path, 'preset': a.preset, **s.summary()})
+            return 0
         if a.cmd == 'style':
             s = Style.load(a.path)
             _out({'ok': True, **s.summary()})

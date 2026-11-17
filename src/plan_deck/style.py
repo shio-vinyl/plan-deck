@@ -22,14 +22,26 @@ SCHEMA_VERSION = 1
 DEFAULTS = {
     'text': {'lineSpacing': 1.15, 'headingMark': '■ ', 'headingSpaceBeforePt': 6, 'bodySpaceBeforePt': 2,
              'marginCm': 0.05},
-    'strokes': {'arrowPt': 3, 'arrowColor': 'muted', 'framePt': 1.0, 'axisColor': 'line', 'gridColor': 'gridline'},
+    'strokes': {'arrowPt': 3, 'arrowColor': 'muted', 'framePt': 1.0, 'axisColor': 'line', 'gridColor': 'gridline',
+                'linkPt': 1.5, 'linkColor': 'text'},
     'table': {'headerFill': 'title', 'headerText': 'white', 'text': 'text', 'fill': 'white', 'totalFill': 'fill',
               'highlightFill': 'highlightFill', 'rowHeightCm': 0.55, 'paddingCm': 0.12, 'lineColor': 'line', 'linePt': 0.75},
     'chart': {'text': 'text', 'linePt': 2.25},
     'legend': {'swatchCm': 0.42, 'rowMinCm': 0.55, 'labelOffsetCm': 0.6},
     'node': {'paddingCm': 0.15, 'text': 'white'},
     'ledger': {'opWidthCm': 0.9, 'opColor': 'muted'},
+    # 正文组件（blocks.py）：标签行、栏头并列、通栏、节点链、泳道、文件摘录、矩阵表、台阶
+    'blocks': {'labelFill': 'title', 'labelText': 'white', 'bodyFill': 'fill', 'headText': 'white', 'subText': 'title',
+               'gapCm': 0.12, 'padCm': 0.2, 'markColor': 'emphasis', 'markPt': 2.25, 'frameColor': 'line',
+               'captionColor': 'muted', 'laneFill': 'fill', 'stageFill': 'title', 'highlightText': 'emphasis'},
 }
+# 色相词：colors 的键和 classes 的类别按含义起名，不按色相（visual-language.md“配色”）；色相名放 palette
+HUE_WORDS = {'red', 'blue', 'navy', 'green', 'grey', 'gray', 'orange', 'yellow', 'gold', 'teal', 'brown', 'pink', 'purple',
+             'black', 'cyan', 'slate', 'brick', 'olive', 'tan', 'beige', 'maroon', 'violet', 'indigo', 'magenta', 'ochre',
+             'steel', 'sky', 'aqua', 'lime', 'mint', 'coral', 'salmon', 'crimson', 'khaki', 'silver', 'ivory'}
+HUE_MODIFIERS = {'light', 'dark', 'deep', 'pale', 'mid', 'bright', 'soft', 'lt', 'dk'}
+HUE_CN = re.compile(r'^(?:深|浅|亮|暗|淡|中)?[红蓝绿灰橙黄紫青棕粉黑金藏褐]色?\d*$')
+EXEMPT_HUE_KEYS = {'white'}         # 运行时必填的颜色名
 
 # 地图图面内注记的默认下限（pt，按放进页面后的实际尺寸计）：19.05 cm 高的 16:9 页面对象标注 10、次要注记 9，
 # 其他页面按页高等比（取到 0.5 pt）。项目在 style.json 的 mapText 里另定。见 docs/visual-language.md“字号层级”
@@ -47,13 +59,28 @@ KNOWN_KEYS = {
          'palette', 'colors', 'classes', 'header', 'conclusion', *DEFAULTS),
     'page': ('widthCm', 'heightCm'), 'body': ('leftCm', 'rightCm', 'topCm', 'bottomCm'), 'grid': ('columns', 'gutterCm'),
     'fonts': ('cjk', 'latin', 'map'), 'mapText': tuple(MAP_TEXT_DEFAULT), 'mapTheme': ('project', 'theme'),
-    'header': ('lines', 'rule', 'bars'), 'header.lines': ('role', *_BOX, 'size', 'color', 'bold'),
-    'header.rule': ('xCm', 'yCm', 'wCm', 'color', 'widthPt'), 'header.bars': (*_BOX, 'color', 'slot'),
+    'header': ('lines', 'rule', 'bars', 'pageNo'), 'header.lines': ('role', *_BOX, 'size', 'color', 'bold'),
+    'header.rule': ('xCm', 'yCm', 'wCm', 'color', 'widthPt'), 'header.bars': (*_BOX, 'color', 'slot', 'role'),
+    'header.pageNo': (*_BOX, 'size', 'color', 'bold', 'align'),
     'conclusion': _BOX,
     **{k: tuple(v) for k, v in DEFAULTS.items()},
 }
 REQUIRED_KEYS = {'page': KNOWN_KEYS['page'], 'body': KNOWN_KEYS['body'], 'grid': KNOWN_KEYS['grid'], 'fonts': ('cjk',),
-                 'header.lines': _BOX, 'header.bars': _BOX, 'header.rule': ('xCm', 'yCm', 'wCm', 'color'), 'conclusion': _BOX}
+                 'header.lines': _BOX, 'header.bars': _BOX, 'header.rule': ('xCm', 'yCm', 'wCm', 'color'), 'conclusion': _BOX,
+                 'header.pageNo': _BOX}
+HEADER_ROLES = ('chapter', 'parent', 'title', 'lead')
+
+
+def _hue_name(key):
+    """键名只由色相词（加深浅修饰、序号）组成：navy、lightBlue、blue2、深蓝、灰色。red_line、ledgerGross 不算。"""
+    key = str(key)
+    if key in EXEMPT_HUE_KEYS:
+        return False
+    if HUE_CN.match(key):
+        return True
+    words = [w.lower() for w in re.findall(r'[A-Z]?[a-z]+|[A-Z]+(?![a-z])', key)]
+    words = [w for w in words if w not in HUE_MODIFIERS]
+    return bool(words) and all(w in HUE_WORDS for w in words)
 
 
 class StyleError(ValueError):
@@ -256,10 +283,13 @@ class Style:
             if not 20 * k * 0.95 <= self.type['conclusion'] <= 24 * k * 1.05:
                 self.warnings.append(f'type.conclusion = {self.type["conclusion"]:g} pt，页高 {self.page_h:g} cm 时红字结论宜为 '
                                      f'{20 * k:.0f}—{24 * k:.0f} pt')
+        # 正文到上一级至少约 1.25 倍（警告线 1.2）；小标题以上各级至少约 1.15 倍（visual-language.md“字号层级”）
         levels = sorted(set(self.type.values()))
         for a, b in zip(levels, levels[1:]):
-            if b / a < 1.2:
-                self.warnings.append(f'字号 {a:g} 与 {b:g} pt 只差 {b / a:.2f} 倍，相邻两级宜差约 1.25 倍')
+            need = 1.2 if a <= body + 0.01 else 1.15
+            if b / a < need - 0.005:
+                want = '1.25' if a <= body + 0.01 else '1.15'
+                self.warnings.append(f'字号 {a:g} 与 {b:g} pt 只差 {b / a:.2f} 倍，相邻两级宜差约 {want} 倍')
         if self.theme is not None and 'map' not in self.fonts:
             self.warnings.append('写了 mapTheme 却没写 fonts.map：整册字体在 style.json 的 fonts 一处定，'
                                  '地图图面用什么字体也写在这里（与页面同就写同一字体，不同就在 style.md 写理由）')
@@ -282,9 +312,19 @@ class Style:
         for i, bar in enumerate(header.get('bars', [])):
             if bar.get('color') not in self._colors:
                 problems.append(f'header.bars[{i}].color 不是 colors 里的名字：{bar.get("color")!r}')
+        roles = [line.get('role') for line in header.get('lines', [])]
+        for i, bar in enumerate(header.get('bars', [])):
+            if 'role' in bar and bar['role'] not in roles:
+                problems.append(f'header.bars[{i}].role {bar["role"]!r} 不是 header.lines 里的角色：色条跟着哪一行标题画')
+        page_no = header.get('pageNo')
+        if page_no:
+            if page_no.get('size', 'body') not in self.type:
+                problems.append(f'header.pageNo.size 不是 type 里的级别：{page_no.get("size")!r}')
+            if page_no.get('color', 'title') not in self._colors:
+                problems.append(f'header.pageNo.color 不是 colors 里的名字：{page_no.get("color")!r}')
         for i, line in enumerate(header.get('lines', [])):
-            if line.get('role') not in ('title', 'parent', 'lead'):
-                problems.append(f'header.lines[{i}].role 应为 title / parent / lead')
+            if line.get('role') not in HEADER_ROLES:
+                problems.append(f'header.lines[{i}].role 应为 {" / ".join(HEADER_ROLES)}')
             if line.get('size') not in self.type:
                 problems.append(f'header.lines[{i}].size 不是 type 里的级别：{line.get("size")!r}')
             if line.get('color') not in self._colors:
@@ -293,11 +333,32 @@ class Style:
             problems.append('header.lines 里要有 role 为 title 的一行（本页节点名）')
         for section, keys in (('table', ('headerFill', 'headerText', 'text', 'fill', 'totalFill', 'highlightFill', 'lineColor')),
                               ('chart', ('text',)),
-                              ('strokes', ('arrowColor', 'axisColor', 'gridColor')), ('node', ('text',)), ('ledger', ('opColor',))):
+                              ('strokes', ('arrowColor', 'axisColor', 'gridColor', 'linkColor')), ('node', ('text',)),
+                              ('ledger', ('opColor',)),
+                              ('blocks', ('labelFill', 'labelText', 'bodyFill', 'headText', 'subText', 'markColor', 'frameColor',
+                                          'captionColor', 'laneFill', 'stageFill', 'highlightText'))):
             for key in keys:
                 if self.metrics[section][key] not in self._colors:
                     problems.append(f'{section}.{key} 要用 colors 里的名字，colors 里没有 {self.metrics[section][key]!r}')
+        self._check_names(doc)
         return problems
+
+    def _check_names(self, doc):
+        """颜色按含义命名：colors 的键、classes 的类别名按色相起名时警告；同一色值出现在两组类别色里给 info。"""
+        hued = [f'colors.{k}' for k in doc.get('colors', {}) if _hue_name(k)]
+        hued += [f'classes.{s}.{c}' for s, codes in doc.get('classes', {}).items() for c in codes if _hue_name(c)]
+        if hued:
+            self.warnings.append(f'{"、".join(hued)} 按色相起名：页面上的颜色按它表示什么起名（新建、扣除、一档、负面……），'
+                                 f'色相名放 palette，colors 和 classes 引用它')
+        owners = {}
+        for scheme, codes in self._classes.items():
+            for code, hexv in codes.items():
+                owners.setdefault(hexv, []).append(f'{scheme}.{code}')
+        for hexv, names in sorted(owners.items()):
+            schemes = {n.split('.', 1)[0] for n in names}
+            if len(schemes) > 1:
+                self.info.append(f'{hexv} 在几组类别色里都用：{"、".join(names)}。这几组出现在同一页或相邻页时会被读成同一类，'
+                                 f'换一个色；运行时发现同页、相邻页同色异义会警告')
 
     def _check_fonts(self):
         """地图用字：fonts.map 与页面字体不同给 info；地图主题实际用的字体与 fonts.map 不一致记警告。"""
@@ -360,6 +421,13 @@ class Style:
     def palettes(self):
         """全部类别配色：{方案名: {code: 色值}}（引用已解析）。"""
         return {k: dict(v) for k, v in self._classes.items()}
+
+    def level(self, *roles):
+        """按顺序取第一个 type 里有的字号级别名（组件的默认级别，如 key 没写时退到 heading）。"""
+        for r in roles:
+            if r in self.type:
+                return r
+        raise StyleError(f'type 里没有字号级别 {" / ".join(roles)}；可用：{", ".join(self.type)}')
 
     def size(self, role):
         if role not in self.type:

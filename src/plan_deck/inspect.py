@@ -13,10 +13,11 @@ import re
 
 from pptx import Presentation
 from pptx.enum.dml import MSO_COLOR_TYPE
-from pptx.enum.text import MSO_AUTO_SIZE
+from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from pptx.shapes.group import GroupShape
 from pptx.util import Emu
 
+from .audit import SHORT_AT, _label_rows, _page, _pictures, _Theme, content_bottom, content_page, mid_layer
 from .clean import duplicate_notes
 from .measure import LINE, PT_CM, text_lines, text_units
 from .offcanvas import placements
@@ -46,6 +47,8 @@ NO_RED_CHARS = 200      # 正文这么多字以上才查有没有强调色，封
 LEAD_NAMES = ('subtitle', 'header:lead')      # 其他页型的 :lead 是正文里的说明条，不是副标题
 EDGE = 0.05 * CM        # 出界的容差
 COVERED_TEXT, COVERED_PICTURE = 0.5, 0.9      # 被后放的形状盖住多少才算：文本框常比字宽，图片压一部分常是有意的
+LABEL_ROW_SHARE = 0.1   # 一册里用左色块＋右底框标签行的页超过这个比例就提醒（docs/patterns.md“标签行”）
+LINK_INSET = 0.12 * CM  # 连线离文字框边这么远以内不算穿过（端点粘在框边上）
 
 
 def _cm(v):
@@ -129,7 +132,18 @@ def _title_warnings(page_type, slot, text):
     return out
 
 
-def _has_shadow(shape):
+def _theme_shadows(master):
+    """主题三档效果样式各自有没有阴影：[False, True, True]。读不到主题时按都有算。"""
+    from lxml import etree
+    for rel in master.part.rels.values():
+        if rel.reltype.endswith('/theme'):
+            lst = etree.fromstring(rel.target_part.blob).find('.//' + A + 'effectStyleLst')
+            if lst is not None:
+                return [es.find('.//' + A + 'outerShdw') is not None for es in lst]
+    return [True, True, True]
+
+
+def _has_shadow(shape, shadows=(True, True, True)):
     el = shape._element
     sp = el.find(P + 'spPr')
     if sp is None:
@@ -139,7 +153,8 @@ def _has_shadow(shape):
         return effects.find(A + 'outerShdw') is not None
     style = el.find(P + 'style')
     ref = style.find(A + 'effectRef') if style is not None else None
-    return ref is not None and ref.get('idx', '0') != '0'
+    idx = int(ref.get('idx', '0')) if ref is not None else 0
+    return idx > 0 and (shadows[idx - 1] if idx <= len(shadows) else True)
 
 
 def _styled(shape):
@@ -265,6 +280,74 @@ def _layout_warnings(placed, W, H, place):
     return out
 
 
+def _link_path(sh, x, y, w, h):
+    """连接线在页面上的折点：直线两点；bentConnector3 横—竖—横（中段位置取 adj1）；bentConnector2 横—竖。"""
+    xf = sh._element.find(P + 'spPr/' + A + 'xfrm')
+    fh = xf is not None and xf.get('flipH') == '1'
+    fv = xf is not None and xf.get('flipV') == '1'
+    rot = int(xf.get('rot', '0')) if xf is not None else 0
+    x0, y0 = (x + w, x)[not fh], (y + h, y)[not fv]
+    x1, y1 = (x, x + w)[not fh], (y, y + h)[not fv]
+    geom = sh._element.find('.//' + A + 'prstGeom')
+    kind = geom.get('prst') if geom is not None else 'line'
+    if rot or kind not in ('bentConnector2', 'bentConnector3'):
+        return [(x0, y0), (x1, y1)]
+    if kind == 'bentConnector2':
+        return [(x0, y0), (x1, y0), (x1, y1)]
+    gd = geom.find(A + 'avLst/' + A + 'gd')
+    adj = int(gd.get('fmla').split()[-1]) / 100000 if gd is not None and gd.get('fmla', '').startswith('val') else 0.5
+    xm = x0 + (x1 - x0) * adj
+    return [(x0, y0), (xm, y0), (xm, y1), (x1, y1)]
+
+
+def _has_arrow(sh):
+    ln = sh._element.find(P + 'spPr/' + A + 'ln')
+    return ln is not None and any(e is not None and e.get('type', 'none') != 'none'
+                                  for e in (ln.find(A + 'headEnd'), ln.find(A + 'tailEnd')))
+
+
+def _text_band(sh, x, y, w, h):
+    """框里文字实际占的那一条（页面坐标，EMU）：横向取整个框宽，纵向按字的高度和锚点。估不了时用整个框。"""
+    need = _text_need(sh, w)
+    if not need:
+        return x, y, x + w, y + h
+    th = min(need[0] * CM, h)
+    tf = sh.text_frame
+    anchor = tf.vertical_anchor
+    top = y + (h - th) / 2 if anchor == MSO_ANCHOR.MIDDLE else y + h - th if anchor == MSO_ANCHOR.BOTTOM else y
+    left, right = x, x + w
+    paras = [p for p in tf.paragraphs if p.text.strip()]
+    if len(paras) == 1:     # 一行字：横向只算字的宽度，按对齐放
+        tw = text_units(paras[0].text) * need[1] * PT_CM * CM + (tf.margin_left + tf.margin_right)
+        if tw < w:
+            al = paras[0].alignment
+            left = x + (w - tw) / 2 if al == PP_ALIGN.CENTER else x + w - tw if al == PP_ALIGN.RIGHT else x
+            right = left + tw
+    return left, top, right, top + th
+
+
+def _crossing_warnings(placed):
+    """带箭头的连接线从字上压过：线画在字的上面，或字所在的框是透明的（不算端点所在的框边）。"""
+    out = []
+    boxes = []
+    for k, (sh, x, y, w, h, _) in enumerate(placed):
+        if sh.has_text_frame and len(sh.text_frame.text.strip()) >= 2 and w > 2 * LINK_INSET and h > 2 * LINK_INSET:
+            l, t, r, b = _text_band(sh, x, y, w, h)
+            boxes.append((k, sh, l + LINK_INSET, t + LINK_INSET, r - LINK_INSET, b - LINK_INSET))
+    for j, (sh, x, y, w, h, _) in enumerate(placed):
+        if sh._element.tag != P + 'cxnSp' or not _has_arrow(sh):
+            continue
+        pts = _link_path(sh, x, y, w, h)
+        samples = [(a[0] + (b[0] - a[0]) * t / 24, a[1] + (b[1] - a[1]) * t / 24) for a, b in zip(pts, pts[1:]) for t in range(25)]
+        ends = (pts[0], pts[-1])        # 端点附近 0.3 cm 不算：箭头尖贴着标签是常见的引线
+        samples = [q for q in samples if min(abs(q[0] - e[0]) + abs(q[1] - e[1]) for e in ends) > 0.3 * CM]
+        for k, other, l, t, r, b in boxes:
+            if (j > k or not _opaque(other)) and any(l < px < r and t < py < b for px, py in samples):
+                out.append((sh, f'箭头从 {other.name} 的字上压过：改走线或挪节点'))
+                break
+    return out
+
+
 def _dangling(slide):
     """动画（p:timing）引用了页上不存在的形状：形状被删了，时间轴还留着。"""
     timing = slide._element.find(P + 'timing')
@@ -276,12 +359,15 @@ def inspect(path, style=None):
     prs = Presentation(path)
     W, H = prs.slide_width, prs.slide_height
     pages, problems, warnings = [], [], []
+    k = 19.05 / (H / CM)
+    themes, label_pages, checked = {}, [], 0
     body = style.size('body') if style else None
     emphasis = style.color('emphasis').lstrip('#').upper() if style else None
     for n, slide in enumerate(prs.slides, 1):
         shapes, names, placed = [], {}, []
         hidden = slide._element.get('show') == '0'
         place = placements(slide.shapes, W, H)
+        shadows = _theme_shadows(slide.slide_layout.slide_master)
         for sh, x, y, w, h, group in _walk(slide.shapes):
             item = {'name': sh.name, 'kind': sh.shape_type and str(sh.shape_type).split('.')[-1].split(' ')[0].lower(),
                     'cm': [_cm(x), _cm(y), _cm(w), _cm(h)], 'placement': place.get(sh._element, 'unknown')}
@@ -312,8 +398,13 @@ def inspect(path, style=None):
             if not off and not hidden:
                 problems += [{'page': n, 'shape': sh.name, 'problem': w} for w in _word_problems(sh)]
                 warnings += [{'page': n, 'shape': sh.name, 'warning': w} for w in _word_warnings(sh)]
-                if _has_shadow(sh):
-                    warnings.append({'page': n, 'shape': sh.name, 'warning': '有阴影：规划汇报的形状不加阴影'})
+                if _has_shadow(sh, shadows):
+                    sp = sh._element.find(P + 'spPr')
+                    on_text = sp is not None and sp.find(A + 'solidFill') is None and sh.has_text_frame and sh.text_frame.text.strip()
+                    warnings.append({'page': n, 'shape': sh.name, 'warning': (
+                        '有阴影，框没有填充，阴影落在字上像重影' if on_text else '有阴影：规划汇报的形状不加阴影')
+                        + '；python-pptx 直接画的形状带着主题效果（p:style 的 effectRef），用运行时的 shape()，'
+                          '或在 spPr 里加空的 a:effectLst'})
                 parts = sh.name.split(':')
                 if sh.name.startswith('pd:') and len(parts) == 3 and sh.has_text_frame:
                     warnings += [{'page': n, 'shape': sh.name, 'warning': w}
@@ -329,6 +420,22 @@ def inspect(path, style=None):
         problems += [{'page': n, 'shape': f'id {spid}', 'problem': '动画引用的形状不存在：删掉这条动画或补回形状'} for spid in _dangling(slide)]
         if not hidden:
             warnings += [{'page': n, 'shape': sh.name, 'warning': w} for sh, w in _layout_warnings(placed, W, H, place)]
+            warnings += [{'page': n, 'shape': sh.name, 'warning': w} for sh, w in _crossing_warnings(placed)]
+            master = slide.slide_layout.slide_master
+            items, runs = _page(slide, themes.setdefault(id(master._element), _Theme(master)), W, H, k)
+            if content_page(items, runs):
+                checked += 1
+                bottom = content_bottom(items)
+                if bottom is not None and bottom < SHORT_AT:
+                    warnings.append({'page': n, 'shape': 'slide', 'warning': f'正文止于页高 {bottom:.0%}，下面空着：把内容铺到版心底'
+                                     f'（组件给 bottom），加图，或问用户是否和相邻节点合页'})
+                n_body, n_mid = mid_layer(runs)
+                pic_area = sum(min(1, i['w'] * i['h']) for i in _pictures(items))
+                if n_body >= 200 and not n_mid and pic_area < .15:
+                    warnings.append({'page': n, 'shape': 'slide', 'warning': f'正文 {n_body} 字没有 14 磅以上的字，缺中间层：'
+                                     f'把本页最重要的两三件事放大（栏头、标签、通栏、节点链，docs/patterns.md）'})
+                if _label_rows(items, with_text=True) >= 2:
+                    label_pages.append(n)
             grid = _grid_warning(slide, W, H)
             if grid:
                 warnings.append({'page': n, 'shape': 'slide', 'warning': grid})
@@ -345,4 +452,7 @@ def inspect(path, style=None):
                       'notes': notes[:80], 'items': shapes})
     warnings += [{'page': d['pages'][0], 'shape': 'notes', 'warning': f"第 {'、'.join(map(str, d['pages']))} 页备注相同：“{d['text']}”"}
                  for d in duplicate_notes(prs)]
+    if len(label_pages) >= 2 and len(label_pages) > LABEL_ROW_SHARE * checked:
+        warnings.append({'page': label_pages[0], 'shape': 'deck', 'warning': f'第 {"、".join(map(str, label_pages))} 页都是左色块＋右底框的'
+                         f'标签行（{len(label_pages)}/{checked} 页）：换成栏头并列、节点链、表或正文，标签行不当默认做法'})
     return {'file': str(path), 'pageCm': [_cm(W), _cm(H)], 'pages': pages, 'problems': problems, 'warnings': warnings}
