@@ -10,6 +10,7 @@ from pptx.chart.data import CategoryChartData
 from pptx.chart.plot import BarPlot, LinePlot, RadarPlot
 from pptx.dml.color import RGBColor
 from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
+from pptx.enum.dml import MSO_PATTERN
 from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.oxml import parse_xml
@@ -18,6 +19,7 @@ from pptx.util import Cm, Pt
 
 from .blocks import Blocks
 from .maps import MapAsset, MapError, class_mismatches, legend_rows
+from .svgshape import LibrarySymbol, parse as parse_svg
 from .measure import LINE, MARK, PT_CM, text_height
 from .style import DataColor, Style, StyleError
 from .template import apply_template
@@ -682,6 +684,8 @@ class Page(Blocks):
 
     def swatch(self, x, y, color, slot, i, symbol='fill', alpha=1.0):
         size = self.style.metrics['legend']['swatchCm']
+        if isinstance(symbol, LibrarySymbol):
+            return self.library_symbol(x, y, symbol, slot, i)
         if symbol == 'frame':
             s = self.shape('rect', x, y, size, size, None, slot, i, line=color)
             s.line.dash_style = 4
@@ -691,6 +695,53 @@ class Page(Blocks):
             s.line.color.rgb = self.rgb('line')
             s.line.width = Pt(0.5)
         return s
+
+    def library_symbol(self, x, y, symbol, slot, i):
+        """符号库的符号画成一组可编辑的自由曲线（legend.json 的 svg）：点符号占色块大小，
+        线、面样本按原比例放进色块高、标注左边的空当里。返回组合形状。"""
+        lg = self.style.metrics['legend']
+        (bx, by, bw, bh), parts = parse_svg(symbol.svg)
+        k = min((lg['labelOffsetCm'] - 0.08) / bw, lg['swatchCm'] / bh) if bw > bh * 1.2 else lg['swatchCm'] / max(bw, bh)
+        emu = Cm(k)                                  # 每个 SVG 单位多少 EMU
+        oy = Cm(y + (lg['swatchCm'] - bh * k) / 2)
+        group = self.name(self.slide.shapes.add_group_shape(), slot, i)
+        for part in parts:
+            if not part.contours:
+                continue
+            (pts, closed), rest = part.contours[0], part.contours[1:]
+            fb = group.shapes.build_freeform((pts[0][0] - bx) * emu, (pts[0][1] - by) * emu, scale=1.0)
+            fb.add_line_segments([((px - bx) * emu, (py - by) * emu) for px, py in pts[1:]], close=closed)
+            for pts, closed in rest:
+                fb.move_to((pts[0][0] - bx) * emu, (pts[0][1] - by) * emu)
+                fb.add_line_segments([((px - bx) * emu, (py - by) * emu) for px, py in pts[1:]], close=closed)
+            s = fb.convert_to_shape(Cm(x), oy)
+            style = s._element.find(qn('p:style'))
+            if style is not None:
+                s._element.remove(style)
+            if part.hatch:
+                s.fill.patterned()
+                s.fill.pattern = MSO_PATTERN.WIDE_DOWNWARD_DIAGONAL if part.hatch['angle'] % 180 > 90 else MSO_PATTERN.WIDE_UPWARD_DIAGONAL
+                s.fill.fore_color.rgb = RGBColor.from_string(part.hatch['color'][1:])
+                s.fill.back_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+            elif part.fill:
+                s.fill.solid()
+                s.fill.fore_color.rgb = RGBColor.from_string(part.fill[1:])
+                _alpha(s.fill._xPr.find(qn('a:solidFill')), part.fill_opacity)
+            else:
+                s.fill.background()
+            if part.stroke:
+                s.line.color.rgb = RGBColor.from_string(part.stroke[1:])
+                s.line.width = int(part.width * emu)
+                ln = s.line._get_or_add_ln()
+                _alpha(ln.find(qn('a:solidFill')), part.stroke_opacity)
+                if part.dash:     # 虚线按线宽的百分比写，和 SVG 的长度一致
+                    ds = ''.join(f'<a:ds d="{int(d / part.width * 100000)}" sp="{int(g / part.width * 100000)}"/>'
+                                 for d, g in zip(part.dash[::2], part.dash[1::2] or part.dash[::2]))
+                    ln.append(parse_xml(f'<a:custDash {nsdecls("a")}>{ds}</a:custDash>'))
+            else:
+                s.line.fill.background()
+        group._element.recalculate_extents()        # 自由曲线加进组合后组合的外框不会自己更新
+        return group
 
     def legend(self, source, x, y, w, extra=(), short=True, context=True):
         """按 legend.json 画可编辑图例：分类行出标题加各类，普通行（范围线、示意面）排在后面；
@@ -731,7 +782,7 @@ class Page(Blocks):
                 continue
             _, color, text, symbol, alpha = r
             rh = max(lg['rowMinCm'], text_height(text, w - off, self.style.size('body'), 1.15, self.family))
-            self.swatch(x, cy + 0.08, DataColor(color.upper()), 'legend-swatch', k, symbol, alpha)
+            self.swatch(x, cy + 0.08, color if isinstance(symbol, LibrarySymbol) else DataColor(color.upper()), 'legend-swatch', k, symbol, alpha)
             self.text(x + off, cy, w - off, [text], h=rh, slot='legend-label', i=k)
             cy += rh
             k += 1
@@ -740,3 +791,10 @@ class Page(Blocks):
     def notes(self, text):
         """讲稿备注：限定、说明性的话放这里，不写在页面上。"""
         self.slide.notes_slide.notes_text_frame.text = text
+
+
+def _alpha(fill, opacity):
+    """给 a:solidFill 里的颜色加不透明度（1 不加）。"""
+    if fill is not None and opacity < 1:
+        clr = fill[0]
+        clr.append(clr.makeelement(qn('a:alpha'), {'val': str(int(opacity * 100000))}))

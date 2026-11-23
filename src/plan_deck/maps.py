@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from PIL import Image
 
 from .fonts import face_name, name_aliases, same_font
+from .svgshape import LibrarySymbol
 
 LEGEND_CONTRACT = 'map-legend'
 LEGEND_VERSION = 1
@@ -344,7 +345,8 @@ class MapRelease:
 
 def legend_rows(doc, short=True, context=True):
     """把 legend.json 的 items 展开成页面图例行：
-    ('title', 文字) 或 ('row', 色值, 文字, 符号, 不透明度)；符号为 fill / circle / frame。
+    ('title', 文字) 或 ('row', 色值, 文字, 符号, 不透明度)；符号为 fill / circle / frame，
+    或 LibrarySymbol（gis-composer 符号库的行，带 librarySymbol 和 svg：页面照 svg 画同一个符号）。
     - 分类行：先出标题（行的 title，没有时用文档 title），再逐类一行；
     - 尺寸行：一行"圆的大小：<标签>（小–大）"；
     - 普通行（无 model，如范围线、示意面、放大位置）：排在分类行和尺寸行之后，线和圈画成框；
@@ -369,6 +371,9 @@ def legend_rows(doc, short=True, context=True):
                 sym = item.get('symbols', [])
                 rng = f"（{sym[-1]['label']}–{sym[0]['label']}）" if sym else ''
                 rows.append(('row', item.get('color', '#808080'), f'圆的大小：{pick(item)}{rng}', 'circle', 1.0))
+            elif model is None and item.get('svg') and isinstance(item.get('librarySymbol'), dict) and item.get('label'):
+                plain.append(('row', item.get('color') or '#000000', pick(item),
+                              LibrarySymbol(item['librarySymbol'].get('name', ''), item['svg']), 1.0))
             elif model is None and item.get('color') and item.get('label'):
                 frame = item.get('type') == 'line' or item.get('symbol') == 'ring'
                 plain.append(('row', item['color'], pick(item), 'frame' if frame else kind,
