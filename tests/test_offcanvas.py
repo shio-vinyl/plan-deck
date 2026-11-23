@@ -435,12 +435,12 @@ class OtherCommandsTest(unittest.TestCase):
         with TempDir() as root:
             prs = new_deck()
             sl = blank(prs)
-            text(sl, '版面外草稿', W + 1, 1, 8, 2, '负责人老梁')
+            text(sl, '版面外草稿', W + 1, 1, 8, 2, '负责人张工')
             text(sl, '正文', 2, 5, 12, 2, '讨论稿')
             path = os.path.join(root, 'a.pptx')
             prs.save(path)
             hits = clean(path, os.path.join(root, 'b.pptx'))['pageHits']
-            self.assertEqual({h['text']: h.get('offCanvas', False) for h in hits}, {'负责人老梁': True, '讨论稿': False})
+            self.assertEqual({h['text']: h.get('offCanvas', False) for h in hits}, {'负责人张工': True, '讨论稿': False})
 
     def test_deck_built_pages_have_no_offcanvas(self):
         with TempDir() as root:
