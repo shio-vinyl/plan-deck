@@ -358,3 +358,87 @@ class LegendTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class VividMapMarksTest(unittest.TestCase):
+    """鲜艳实用汇报的图上注记方框和图内一列图例（docs/map-types.md）。"""
+
+    ITEMS = [
+        {'label': '重点片区', 'type': 'line', 'color': '#FF0000', 'width': 2, 'dasharray': [3, 1.5]},
+        {'label': '片区边界', 'type': 'line', 'color': '#7F7F7F', 'width': 1.33, 'dasharray': [10, 0]},
+        {'label': 'land', 'type': 'circle', 'model': 'classified', 'title': '居住用地',
+         'classes': [{'code': '已列入计划', 'label': '已列入供地计划', 'color': '#FF0000'},
+                     {'code': '储备', 'label': '储备地', 'color': '#0064FF'}]},
+        {'label': '用地面积', 'type': 'circle', 'color': '#6a7378', 'model': 'size',
+         'symbols': [{'label': '12', 'radius': 10}, {'label': '1', 'radius': 3}]},
+        {'label': '站点 500 米范围', 'type': 'fill', 'color': '#E3CB9E', 'opacity': 1},
+    ]
+
+    def test_line_rows_keep_dash_and_sizes_can_be_left_out(self):
+        rows, _ = legend_rows(legend_doc('x.png', items=self.ITEMS), lines=True, sizes=False)
+        rows = [r for r in rows if r[0] == 'row']
+        self.assertEqual([r[2] for r in rows], ['已列入供地计划', '储备地', '重点片区', '片区边界', '站点 500 米范围'])
+        line, solid = rows[2][3], rows[3][3]
+        self.assertTrue(line.dashed)
+        self.assertEqual(line.width_pt, 1.5)
+        self.assertFalse(solid.dashed)                                 # [10, 0] 是实线
+        self.assertEqual(rows[4][3], 'fill')
+        plain, _ = legend_rows(legend_doc('x.png', items=self.ITEMS))
+        self.assertIn(('row', '#FF0000', '重点片区', 'frame', 1.0), plain)  # 默认照旧画虚线框
+
+    def test_inset_legend_one_column_in_the_map_corner(self):
+        deck = Deck(EXAMPLE_STYLE)
+        p = deck.page('evidence', '3.1 发展策略')
+        from plan_deck.deck import Box
+        m = Box(20, 4, 10, 13)
+        box = p.inset_legend(legend_doc('x.png', items=self.ITEMS), m)
+        self.assertAlmostEqual(box.x, 20.15)
+        self.assertAlmostEqual(box.bottom, 17 - 0.15)
+        names = [s.name for s in p.slide.shapes]
+        self.assertIn('pd:evidence:map-legend-bg', names)
+        self.assertIn('pd:evidence:map-legend-title', names)
+        self.assertIn('pd:evidence:map-legend-swatch:4', names)        # 5 行，尺寸行不画、不出分组标题
+        self.assertNotIn('pd:evidence:map-legend-swatch:5', names)
+        labels = [s.text_frame.text for s in p.slide.shapes if s.name.startswith('pd:evidence:map-legend-label')]
+        self.assertNotIn('居住用地', labels)
+        dashed = [s for s in p.slide.shapes if s.name == 'pd:evidence:map-legend-swatch:2'][0]
+        self.assertIsNotNone(dashed.line.dash_style)
+        self.assertEqual(deck.warnings, [])
+        right = p.inset_legend(legend_doc('x.png', items=self.ITEMS), m, corner='top-right', title=None)
+        self.assertAlmostEqual(right.right, 30 - 0.15)
+        self.assertAlmostEqual(right.y, 4.15)
+
+    def test_inset_legend_warns_about_many_rows_and_yellow_points(self):
+        deck = Deck(EXAMPLE_STYLE)
+        p = deck.page('evidence', '3.1 发展策略')
+        from plan_deck.deck import Box
+        classes = [{'code': str(k), 'label': f'类 {k}', 'color': c}
+                   for k, c in enumerate(['#FF0000', '#0064FF', '#FF6A00', '#00B050', '#7A00FF', '#FFE100', '#000000'])]
+        p.inset_legend(legend_doc('x.png', items=[{'label': 'pts', 'type': 'circle', 'model': 'classified', 'classes': classes}]),
+                       Box(0, 0, 10, 10))
+        self.assertTrue(any('7 行' in w and '拆' in w for w in deck.warnings))
+        self.assertTrue(any('类 5' in w and '黄色' in w for w in deck.warnings))
+
+    def test_map_label_box_and_leader_without_shadow(self):
+        from plan_deck.deck import Box
+        from plan_deck.inspect import _has_shadow
+        deck = Deck(EXAMPLE_STYLE)
+        p = deck.page('evidence', '3.1 发展策略')
+        m = Box(20, 4, 10, 13)
+        b = p.map_label(m, '西岸 12 街坊', at=(3, 3), box_at=(5, 1), r=0.15)
+        far = p.map_label(m, '很长的一个项目名称在右边', at=(9, 12), box_at=(9.5, 12.9))
+        self.assertLessEqual(far.right, m.right + 1e-9)               # 方框不出地图
+        self.assertLessEqual(far.bottom, m.bottom + 1e-9)
+        shapes = {s.name: s for s in p.slide.shapes}
+        box, leader = shapes['pd:evidence:map-label:0'], shapes['pd:evidence:map-label-leader:0']
+        self.assertEqual(box.text_frame.text, '西岸 12 街坊')
+        self.assertEqual(str(box.fill.fore_color.rgb), 'FFFFFF')
+        self.assertEqual(str(box.line.color.rgb), '000000')
+        self.assertTrue(box.text_frame.paragraphs[0].runs[0].font.bold)
+        self.assertEqual(str(box.text_frame.paragraphs[0].runs[0].font.color.rgb), '000000')
+        # 引线从方框左边中点出发，停在点的边缘
+        self.assertAlmostEqual(leader.end_x / 360000, b.x, places=2)
+        self.assertAlmostEqual(leader.end_y / 360000, b.y + b.h / 2, places=2)
+        for s in p.slide.shapes:
+            if 'map-label' in s.name:
+                self.assertFalse(_has_shadow(s), s.name)
