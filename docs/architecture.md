@@ -186,6 +186,7 @@ plan-deck inspect deck.pptx [--style style.json] [--brief]   页面与形状清�
 plan-deck audit deck.pptx [--against 另一版.pptx] [--brief]   只读体检（docs/humanize.md）：全册指标和参考范围（含中间层比例、未铺满的页）、逐页标记（框等尺寸、左色块右底框、和上一页版面相似、没有图、正文止于页高 75% 以上、缺中间层）、页面绝不出现的用语（problems，影响退出码）、文字线索（讨论口语、单字动词接术语）；--against 逐页比两版文字
 plan-deck clean deck.pptx 副本.pptx [--pattern 正则] [--drop-hidden] [--force]   另存副本，清掉备注里的标签行、待确认和内部说法；列出多页相同的讲稿和页面文字里的过程信息
 plan-deck render deck.pptx --out renders/ [--engine powerpoint|libreoffice] [--style style.json]   转 pdf 和逐页 png，列出实际嵌入的字体
+plan-deck compare 旧.pptx 新.pptx --out 审核对比.pdf [--old-renders 目录] [--new-renders 目录] [--labels v4,v5] [--engine powerpoint|libreoffice]   改稿审核 PDF：先按全文相同对齐、再按文字相似度配对（挪了位置的页也认得出）；改过的页出旧、新并排图，新图红框是像素差异，图下列文字改动；新增页、删除页单列；只改了数字（节号顺延）的只列页码。不给渲染目录时现渲染，图放在 PDF 旁的 <同名>.renders/
 ```
 
 **还没有的**：起稿 spec、结构大纲生成、页面池操作（取页、重排、隐藏）、按名字 patch（文字替换有 `replace_text`）、页面元数据、版式清单的槽位模板、结构页（封面、目录、章节页）、导出地图主题、地图槽位请求。这些在出页脚本里手写或用常规库做，规则照样遵守；设想记在 Issue #8。

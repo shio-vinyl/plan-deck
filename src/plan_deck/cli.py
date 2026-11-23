@@ -7,6 +7,7 @@
   plan-deck audit <deck.pptx> [--against <另一版.pptx>] [--brief]
   plan-deck render <deck.pptx> --out <目录> [--engine powerpoint|libreoffice] [--style <style.json>]
   plan-deck clean <deck.pptx> <副本.pptx> [--pattern <正则>] [--drop-hidden] [--force]
+  plan-deck compare <旧.pptx> <新.pptx> --out <审核对比.pdf> [--old-renders <目录>] [--new-renders <目录>] [--labels v4,v5] [--engine powerpoint|libreoffice]
   plan-deck offcanvas <deck.pptx>… --out <目录> [--render 32,58|all] [--engine libreoffice|powerpoint] [--crop 0.2]
 """
 import argparse
@@ -16,6 +17,7 @@ import sys
 from . import __version__
 from .audit import audit
 from .clean import clean
+from .compare import CompareError, compare
 from .inspect import inspect
 from .maps import MapError, MapRelease
 from .offcanvas import CROP_MIN, run as run_offcanvas
@@ -74,6 +76,15 @@ def main(argv=None):
     rd.add_argument('--engine', choices=('powerpoint', 'libreoffice'), default='powerpoint')
     rd.add_argument('--dpi', type=int, default=80)
     rd.add_argument('--style', help='给了就核对 style.json 的页面字体是否被替换')
+    cp = sub.add_parser('compare', help='改稿审核：两版逐页配对，改过的页出“旧 | 新”并排图（红框标出变化），新增页、删除页单列，合成一份 PDF 给人审')
+    cp.add_argument('old', help='上一版 pptx')
+    cp.add_argument('new', help='这一版 pptx')
+    cp.add_argument('--out', required=True, help='审核 PDF；不给渲染目录时，渲染图放在它旁边的 <同名>.renders/')
+    cp.add_argument('--old-renders', help='上一版已有的渲染目录（render 的输出，只放这一版的逐页 png）')
+    cp.add_argument('--new-renders', help='这一版已有的渲染目录')
+    cp.add_argument('--labels', default='旧版,新版', help='两版的叫法，逗号分开，如 v4,v5')
+    cp.add_argument('--engine', choices=('powerpoint', 'libreoffice'), default='powerpoint')
+    cp.add_argument('--dpi', type=int, default=80)
     oc = sub.add_parser('offcanvas', help='版面外审计：接手已有 pptx 时先跑。逐页列版面外和跨边对象的全部内容，导出图片，原 pptx 不改')
     oc.add_argument('path', nargs='+', help='一份或多份 pptx；读不了的文件报告没审计，退出码 1')
     oc.add_argument('--out', required=True, help='输出目录：offcanvas.json、版面外清单.md、全文提取.md、assets/；多份时各一个子目录')
@@ -130,6 +141,18 @@ def main(argv=None):
                 res = clean(a.path, a.out, a.pattern, a.drop_hidden, a.force)
             except ValueError as e:
                 _out({'ok': False, 'error': 'CLEAN_REFUSED', 'message': str(e)})
+                return 1
+            _out({'ok': True, **res})
+            return 0
+        if a.cmd == 'compare':
+            labels = [s.strip() for s in a.labels.split(',')]
+            if len(labels) != 2 or not all(labels):
+                _out({'ok': False, 'error': 'BAD_LABELS', 'message': f'--labels 写成 旧,新，如 v4,v5，实际是 {a.labels!r}'})
+                return 1
+            try:
+                res = compare(a.old, a.new, a.out, a.old_renders, a.new_renders, a.engine, a.dpi, tuple(labels))
+            except (CompareError, RenderError) as e:
+                _out({'ok': False, 'error': 'COMPARE_FAILED', 'message': str(e)})
                 return 1
             _out({'ok': True, **res})
             return 0

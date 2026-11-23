@@ -62,6 +62,7 @@ plan-deck 不画地图。空间分析交给 [gis-kit](https://github.com/shio-vi
 | `plan-deck offcanvas` | 接手同事的稿子时先跑：列出版面外和跨边对象的全部内容，导出图片，标出版面内外两版对不上的表格 |
 | `plan-deck render` | 用 LibreOffice 或 PowerPoint（macOS）转 PDF 和逐页 PNG，列出实际嵌入的字体 |
 | `plan-deck clean` | 另存交付副本：清掉备注里的改稿说明、待确认和内部说法，页面不动 |
+| `plan-deck compare` | 改稿审核：两版逐页配对，改过的页出“旧、新”并排图（红框标出变化）、新增页和删除页单列，合成一份 PDF 给人审 |
 | `plan-deck maps check` | 逐张核对地图发布版 |
 
 还没有的：结构大纲自动生成、页面池操作（取页、重排、隐藏）、封面目录等结构页。现在由 agent 在脚本里用 python-pptx 做，规则照样遵守。

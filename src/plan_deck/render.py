@@ -99,6 +99,17 @@ def missing_fonts(fonts, used):
     return out
 
 
+def _tool(name):
+    """poppler 的命令：PATH 里没有时再找 Homebrew 的目录（agent 的 shell 常常没带上）。"""
+    hit = shutil.which(name)
+    if hit:
+        return hit
+    for d in ('/opt/homebrew/bin', '/usr/local/bin'):
+        if os.access(os.path.join(d, name), os.X_OK):
+            return os.path.join(d, name)
+    return None
+
+
 def render(pptx, out_dir, engine='powerpoint', dpi=80, timeout=300, fonts=None):
     """返回 {engine, pdf, pages: [png…], fonts: [字体名…], warnings: [...], notes: [说明…]}。
     fonts 给 style.json 的 fonts 时，核对页面字体是否真的用上了。"""
@@ -109,16 +120,16 @@ def render(pptx, out_dir, engine='powerpoint', dpi=80, timeout=300, fonts=None):
     pdf = os.path.join(out_dir, f'{stem}.{engine}.pdf')
     {'powerpoint': _powerpoint_pdf, 'libreoffice': _libreoffice_pdf}[engine](os.path.abspath(pptx), pdf, timeout)
     result = {'engine': engine, 'pdf': pdf, 'pages': [], 'fonts': None, 'warnings': [], 'notes': []}
-    if shutil.which('pdftoppm'):
+    if _tool('pdftoppm'):
         prefix = os.path.join(out_dir, f'{stem}.{engine}')
-        subprocess.run(['pdftoppm', '-r', str(dpi), '-png', pdf, prefix], check=True, capture_output=True)
+        subprocess.run([_tool('pdftoppm'), '-r', str(dpi), '-png', pdf, prefix], check=True, capture_output=True)
         result['pages'] = sorted((os.path.join(out_dir, n) for n in os.listdir(out_dir)
                                   if n.startswith(f'{stem}.{engine}-') and n.endswith('.png')),
                                  key=lambda p: int(re.search(r'-(\d+)\.png$', p).group(1)))
     else:
         result['notes'].append('没装 pdftoppm（poppler），只出了 pdf')
-    if shutil.which('pdffonts'):
-        res = subprocess.run(['pdffonts', pdf], capture_output=True, text=True, check=True)
+    if _tool('pdffonts'):
+        res = subprocess.run([_tool('pdffonts'), pdf], capture_output=True, text=True, check=True)
         result['fonts'] = parse_pdffonts(res.stdout)
         if fonts:
             result['warnings'] = missing_fonts(fonts, result['fonts'])
