@@ -16,7 +16,7 @@ description: 制作和修改规划汇报 PPT（汇报稿、幻灯片、PowerPoin
 | 给一页选页型 | `$R/docs/page-types.md` |
 | 页面里要放地图 | `$R/docs/map-types.md`，再按 gis-composer 的 skill 出图 |
 | `style.json`、大纲格式、组件和命令 | `$R/docs/architecture.md` |
-| 用户说定稿，要出去 AI 味版 | `$R/docs/humanize.md` |
+| 用户说定稿，要去 AI 味 | `$R/docs/humanize.md` |
 | 想改已定的做法，或想知道某条规则的来由 | `$R/docs/design-principles.md` |
 
 ## 和通用演示文稿 skill 的关系
@@ -115,7 +115,7 @@ plan-deck offcanvas deck.pptx --out renders/offcanvas/
 
 ### 4. 检查
 
-- 渲染成图片，逐页看：`plan-deck render deck.pptx --out renders/ --engine libreoffice`。LibreOffice 渲染前确认中文字体可用或已映射，否则会漏字。
+- 渲染成图片，逐页看。装了 PowerPoint 的 macOS 一律用它：`plan-deck render deck.pptx --out renders/ --engine powerpoint --style style.json`。LibreOffice 的字体替换、表格行高、图表标签和 PowerPoint 不一样，经常换字、漏字、错位，结果只能用来确认文字在不在，不拿来判断版面；没有 PowerPoint 时才用 `--engine libreoffice`，渲染前确认中文字体可用或已映射。
 - 改过字的页都要重新看图，只换几个字也一样：看有没有多出一行、孤字成行、文字压到框底、标点落到行首。
 - 跑 `plan-deck inspect deck.pptx --style style.json`，逐条看 `problems` 和 `warnings`。`problems` 里的用语都要改；讲解员口吻、口语和标题的警告只是线索，逐条判断。
 - 渲染图看不到版面外。同事改过的稿再跑一次 `plan-deck offcanvas`，看有没有新留的任务说明或资料。
@@ -139,7 +139,7 @@ plan-deck offcanvas deck.pptx --out renders/offcanvas/
 
 ### 6. 定稿后去 AI 味
 
-**用户明确说定稿才做。** 默认输出未去 AI 味的工作稿；去 AI 味另存一版，工作稿保留。先读 `$R/docs/humanize.md`，按它的流程做：先做分档样张由用户定，逐页手改，不做成自动规则。
+**用户明确说定稿才做。** 默认输出未去 AI 味的工作稿；去 AI 味只算一次改稿，做完就是工作稿的下一版（v+1），去之前那版进历史目录。先读 `$R/docs/humanize.md`，按它的流程做：先做分档样张由用户定，逐页手改，不做成自动规则。
 
 ## 给子会话派活
 
@@ -182,7 +182,7 @@ plan-deck offcanvas deck.pptx --out renders/offcanvas/
 
 ## 交付
 
-交付前在 PowerPoint 里核对一遍：表格行高、图表标签、字体替换和 LibreOffice 渲染的不一样。
+交付前在 PowerPoint 里核对一遍；检查阶段已经用 PowerPoint 渲染过的，交付前对改过的页再看一次。
 
 - 装了 PowerPoint 的 macOS：`plan-deck render deck.pptx --out renders/ --engine powerpoint --style style.json`，逐页看 png，并看 `fonts` 和 `warnings`。第一次运行时 macOS 可能要求允许终端控制 PowerPoint，请用户点允许。
 - 没有 PowerPoint（或不是 macOS）：请用户在 PowerPoint 里打开逐页看，在交付说明里写明“未在 PowerPoint 里核对”。
@@ -195,4 +195,4 @@ plan-deck offcanvas deck.pptx --out renders/offcanvas/
 - 隐藏页默认保留，要不要删单独问用户，并说明隐藏页里还有哪些旧说法；用户要删时加 `--drop-hidden`。
 - 工作稿改过后重新生成副本，不直接改副本。
 
-告诉用户：项目目录，以及 pptx（工作稿、去 AI 味版）、`.outline.md`、`style.json`、`style.md` 的路径；页数和各章页数；哪些页是待补、在等什么；哪些数字对不上或需要核实；哪些页你认为偏满或偏空、建议怎么拆合；用了什么版式和视觉系统；渲染检查看过哪些页、有没有没看到的、是否在 PowerPoint 里核对过；地图用的发布版本，以及带着未过 QA 的图（哪张、哪项检查、发布原因）。
+告诉用户：项目目录，以及 pptx（工作稿；做了去 AI 味的，说明是哪一版）、`.outline.md`、`style.json`、`style.md` 的路径；页数和各章页数；哪些页是待补、在等什么；哪些数字对不上或需要核实；哪些页你认为偏满或偏空、建议怎么拆合；用了什么版式和视觉系统；渲染检查看过哪些页、有没有没看到的、是否在 PowerPoint 里核对过；地图用的发布版本，以及带着未过 QA 的图（哪张、哪项检查、发布原因）。
