@@ -2,6 +2,7 @@
 
 工具生成的形状统一命名 pd:<页型>:<槽位>[:<序号>]；同一页同一槽位出现多次时自动编号。
 """
+import math
 import re
 
 from PIL import Image
@@ -10,7 +11,7 @@ from pptx.chart.data import CategoryChartData
 from pptx.chart.plot import BarPlot, LinePlot, RadarPlot
 from pptx.dml.color import RGBColor
 from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
-from pptx.enum.dml import MSO_PATTERN
+from pptx.enum.dml import MSO_LINE_DASH_STYLE, MSO_PATTERN
 from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.oxml import parse_xml
@@ -18,9 +19,9 @@ from pptx.oxml.ns import nsdecls, qn
 from pptx.util import Cm, Pt
 
 from .blocks import Blocks
-from .maps import MapAsset, MapError, class_mismatches, legend_rows
+from .maps import LineSample, MapAsset, MapError, class_mismatches, legend_rows
 from .svgshape import LibrarySymbol, parse as parse_svg
-from .measure import LINE, MARK, PT_CM, text_height
+from .measure import LINE, MARK, PT_CM, text_height, text_width
 from .style import DataColor, Style, StyleError
 from .template import apply_template
 
@@ -743,11 +744,9 @@ class Page(Blocks):
         group._element.recalculate_extents()        # 自由曲线加进组合后组合的外框不会自己更新
         return group
 
-    def legend(self, source, x, y, w, extra=(), short=True, context=True):
-        """按 legend.json 画可编辑图例：分类行出标题加各类，普通行（范围线、示意面）排在后面；
-        extra 为补充行 (颜色名, 文字, 符号)，只用于地图图例文档里确实没有的行。
-        source 是 MapAsset、已读入的 legend 字典，或它们的列表（如放大图面板 + 整页图例）。返回 Box。
-        页面类别配色与地图里同一 code 的颜色不一致时记警告：两边要从同一处取色。"""
+    def _legend_docs(self, source):
+        """图例的来源（MapAsset、legend 字典或它们的列表）→ (legend 文档列表, 名称)；
+        图例已画进 PNG、页面与地图类别色不一致时记警告。"""
         docs, names = [], []
         for src in (source if isinstance(source, (list, tuple)) else [source]):
             if isinstance(src, MapAsset):
@@ -765,6 +764,14 @@ class Page(Blocks):
         for scheme, code, page_c, map_c in class_mismatches(docs, self.style.palettes):
             self.deck.warn(f'第 {self.number} 页：{name} 里“{code}”是 {map_c}，style.json 的 classes.{scheme} 是 {page_c}，'
                            f'页面与地图同一类不同色')
+        return docs, name
+
+    def legend(self, source, x, y, w, extra=(), short=True, context=True):
+        """按 legend.json 画可编辑图例：分类行出标题加各类，普通行（范围线、示意面）排在后面；
+        extra 为补充行 (颜色名, 文字, 符号)，只用于地图图例文档里确实没有的行。
+        source 是 MapAsset、已读入的 legend 字典，或它们的列表（如放大图面板 + 整页图例）。返回 Box。
+        页面类别配色与地图里同一 code 的颜色不一致时记警告：两边要从同一处取色。"""
+        docs, name = self._legend_docs(source)
         rows, skipped = legend_rows(docs, short=short, context=context)
         if skipped:
             self.deck.warn(f'第 {self.number} 页：{name} 有图例行没画（不支持的种类）：{"、".join(skipped)}')
@@ -788,9 +795,125 @@ class Page(Blocks):
             k += 1
         return Box(x, y, w, cy - y)
 
+    # ---------- 图上的注记和图例（鲜艳实用汇报，见 docs/map-types.md） ----------
+    def _boxed(self, x, y, w, h, slot, i=None, border='#000000', border_pt=0.75):
+        """白底、细边框、直角的框（不带阴影）。"""
+        s = self.shape('rect', x, y, w, h, DataColor('#FFFFFF'), slot, i)
+        s.line.color.rgb = RGBColor.from_string(border.lstrip('#'))
+        s.line.width = Pt(border_pt)
+        return s
+
+    def map_label(self, map_box, text, at, box_at, r=0.0, slot='map-label', i=None, size=None, bold=True):
+        """地图注记方框：白底黑框直角方框里写名称（纯黑，默认加粗），细黑引线从方框最近一边的中点指到点的边缘。
+        map_box 是 map() 返回的 Box；at 是点在图上的位置，box_at 是方框左上角，都是相对地图左上角的 cm；
+        r 是点的半径（cm），引线停在点的边缘，点就在方框旁边（距离不到 r 加 0.1 cm）时不画引线。
+        方框不出地图的边。字号默认 style.mapText.labelPt。返回方框的 Box。"""
+        pt = size or self.style.map_text['labelPt']
+        pad = 0.09
+        w = text_width(text, pt, self.family, bold) + 2 * pad + 0.1
+        h = pt * 1.35 * PT_CM + 2 * pad
+        bx = min(max(map_box.x + box_at[0], map_box.x), map_box.right - w)
+        by = min(max(map_box.y + box_at[1], map_box.y), map_box.bottom - h)
+        cx, cy = map_box.x + at[0], map_box.y + at[1]
+        if bx <= cx <= bx + w:                       # 点在方框正上方或正下方：引线竖着接上下边
+            ex, ey = cx, (by if cy < by else by + h)
+        else:
+            ex, ey = (bx if cx < bx else bx + w), by + h / 2
+        d = math.hypot(ex - cx, ey - cy)
+        k = self.next_index(slot) if i is None else i
+        if d > r + 0.1:
+            sx, sy = cx + (ex - cx) * r / d, cy + (ey - cy) * r / d
+            self.line(sx, sy, ex, ey, DataColor('#000000'), 0.75, f'{slot}-leader', k)
+        s = self._boxed(bx, by, w, h, slot, k)
+        tf = s.text_frame
+        tf.word_wrap = False
+        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        tf.margin_left = tf.margin_right = Cm(pad)
+        tf.margin_top = tf.margin_bottom = 0
+        p = tf.paragraphs[0]
+        p.alignment = PP_ALIGN.CENTER
+        self.runs(p, text, pt, DataColor('#000000'), bold)
+        return Box(bx, by, w, h, s)
+
+    def inset_legend(self, source, map_box, corner='bottom-left', title='图例', extra=(), short=True, context=False,
+                     sizes=False, margin=0.15, max_rows=6):
+        """图内一列图例：放在地图的一个角上（corner：bottom-left / top-left / bottom-right / top-right），
+        白底细边框，顶上一行“图例”（title=None 不写），不出分组标题；字号 style.mapText.labelPt，字纯黑。
+        - 点类画同色圆点，面（含只作背景的范围）画同色小方块，线画一段线（legend.json 有 dasharray 就是虚线），
+          符号库的符号照 svg 画；尺寸行默认不画（sizes=True 画）；context 行默认不画。
+        - extra：补充行 (颜色名, 文字, 符号)，同 legend()；符号可写 'line' / 'dash' 画一段实线或虚线。
+        - 行数超过 max_rows 时记警告（一张图别叠太多类，能拆就拆）；点类用了黄色记警告（白底上看不清）。
+        source 同 legend()。返回 Box。"""
+        docs, name = self._legend_docs(source)
+        rows, skipped = legend_rows(docs, short=short, context=context, lines=True, sizes=sizes)
+        if skipped:
+            self.deck.warn(f'第 {self.number} 页：{name} 有图例行没画（不支持的种类）：{"、".join(skipped)}')
+        rows = [r for r in rows if r[0] == 'row']
+        for c, text, symbol in extra:
+            if symbol in ('line', 'dash'):
+                symbol = LineSample([3, 1.5] if symbol == 'dash' else None, 1.5)
+            rows.append(('row', self.style.color(c), text, symbol, 1.0))
+        if len(rows) > max_rows:
+            self.deck.warn(f'第 {self.number} 页：{name} 的图内图例有 {len(rows)} 行：一张图叠的类太多，能拆成几张就拆')
+        for _, color, text, symbol, _a in rows:
+            if symbol == 'circle' and _yellow(color):
+                self.deck.warn(f'第 {self.number} 页：{name} 的点类“{text}”是黄色 {color}：白底上看不清，黄色只给面用')
+        pt = self.style.map_text['labelPt']
+        row_h, pad, sym_w, gap = pt * 1.4 * PT_CM, 0.22, 0.56, 0.15
+        texts = [text for _, _, text, _, _ in rows]
+        tm = 2 * self.style.metrics['text']['marginCm']       # 文本框左右内边距
+        w = pad * 2 + sym_w + gap + tm + max([text_width(t, pt, self.family) for t in texts] +
+                                         [text_width(title, pt, self.family, True) - sym_w - gap if title else 0]) + 0.15
+        h = pad * 2 + row_h * (len(rows) + (1 if title else 0))
+        right, bottom = corner.endswith('right'), corner.startswith('bottom')
+        if corner not in ('bottom-left', 'top-left', 'bottom-right', 'top-right'):
+            raise ValueError(f'corner 只能是 bottom-left / top-left / bottom-right / top-right，不是 {corner!r}')
+        x0 = map_box.right - margin - w if right else map_box.x + margin
+        y0 = map_box.bottom - margin - h if bottom else map_box.y + margin
+        self._boxed(x0, y0, w, h, 'map-legend-bg', border='#404040', border_pt=0.5)
+        black = DataColor('#000000')
+        y = y0 + pad
+        if title:
+            self._label(x0 + pad - tm / 2, y, w - 2 * pad + tm, row_h, title, 'map-legend-title', size=pt, color=black, bold=True,
+                        anchor='middle').shape.text_frame.word_wrap = False      # 单行，框宽按字宽定
+            y += row_h
+        k = self.next_index('map-legend-swatch')
+        for _, color, text, symbol, alpha in rows:
+            cy, x = y + row_h / 2, x0 + pad
+            dc = color if isinstance(symbol, LibrarySymbol) else DataColor(color.upper())
+            if isinstance(symbol, LineSample):
+                ln = self.line(x, cy, x + sym_w, cy, dc, min(max(symbol.width_pt, 1.0), 4.0), 'map-legend-swatch', k)
+                if symbol.dashed:
+                    ln.line.dash_style = MSO_LINE_DASH_STYLE.DASH
+            elif symbol == 'circle':
+                d = pt * 0.8 * PT_CM
+                self.shape('oval', x + (sym_w - d) / 2, cy - d / 2, d, d, dc, 'map-legend-swatch', k, alpha=alpha)
+            elif symbol == 'fill':
+                d = pt * 0.9 * PT_CM
+                self.shape('rect', x + (sym_w - d) / 2, cy - d / 2, d, d, dc, 'map-legend-swatch', k, alpha=alpha)
+            else:                                    # 虚线框、符号库的符号
+                sw = self.style.metrics['legend']['swatchCm']
+                self.swatch(x + (sym_w - sw) / 2, cy - sw / 2, dc, 'map-legend-swatch', k, symbol, alpha)
+            self._label(x + sym_w + gap - tm / 2, y, w - 2 * pad - sym_w - gap + tm / 2 + 0.05, row_h, text, 'map-legend-label', k,
+                        size=pt, color=black, anchor='middle').shape.text_frame.word_wrap = False
+            y += row_h
+            k += 1
+        return Box(x0, y0, w, h)
+
     def notes(self, text):
         """讲稿备注：限定、说明性的话放这里，不写在页面上。"""
         self.slide.notes_slide.notes_text_frame.text = text
+
+
+def _yellow(color):
+    """色值是不是黄色（点上不用黄）：色相约 45°–70°、饱和、偏亮。"""
+    try:
+        r, g, b = (int(str(color).lstrip('#')[k:k + 2], 16) / 255 for k in (0, 2, 4))
+    except ValueError:
+        return False
+    import colorsys
+    hue, light, sat = colorsys.rgb_to_hls(r, g, b)
+    return 45 <= hue * 360 <= 70 and sat > 0.5 and light > 0.4
 
 
 def _alpha(fill, opacity):

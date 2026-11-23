@@ -343,10 +343,29 @@ class MapRelease:
 
 # ---------------- legend.json → 页面图例行 ----------------
 
-def legend_rows(doc, short=True, context=True):
+class LineSample(tuple):
+    """图例里的一段线（图内图例用）：(是否虚线, 线宽 pt)。"""
+    def __new__(cls, dasharray, width_pt):
+        # [10, 0] 这类间隔为 0 的 dasharray 是实线
+        dashed = bool(dasharray) and any(float(v) > 0 for v in list(dasharray)[1::2])
+        return super().__new__(cls, (dashed, float(width_pt)))
+
+    @property
+    def dashed(self):
+        return self[0]
+
+    @property
+    def width_pt(self):
+        return self[1]
+
+
+def legend_rows(doc, short=True, context=True, lines=False, sizes=True):
     """把 legend.json 的 items 展开成页面图例行：
     ('title', 文字) 或 ('row', 色值, 文字, 符号, 不透明度)；符号为 fill / circle / frame，
     或 LibrarySymbol（gis-composer 符号库的行，带 librarySymbol 和 svg：页面照 svg 画同一个符号）。
+    - lines=True 时线画成一段线（LineSample，有 dasharray 就是虚线，线宽按图上的 px 换成 pt），
+      圈（symbol: ring，如步行范围）画成同色方块；默认线和圈都画成虚线框；
+    - sizes=False 时不出尺寸行。
     - 分类行：先出标题（行的 title，没有时用文档 title），再逐类一行；
     - 尺寸行：一行"圆的大小：<标签>（小–大）"；
     - 普通行（无 model，如范围线、示意面、放大位置）：排在分类行和尺寸行之后，线和圈画成框；
@@ -368,6 +387,8 @@ def legend_rows(doc, short=True, context=True):
                 for c in item.get('classes', []):
                     rows.append(('row', c['color'], pick(c), kind, float(item.get('opacity', 1))))
             elif model == 'size':
+                if not sizes:
+                    continue
                 sym = item.get('symbols', [])
                 rng = f"（{sym[-1]['label']}–{sym[0]['label']}）" if sym else ''
                 rows.append(('row', item.get('color', '#808080'), f'圆的大小：{pick(item)}{rng}', 'circle', 1.0))
@@ -375,6 +396,13 @@ def legend_rows(doc, short=True, context=True):
                 plain.append(('row', item.get('color') or '#000000', pick(item),
                               LibrarySymbol(item['librarySymbol'].get('name', ''), item['svg']), 1.0))
             elif model is None and item.get('color') and item.get('label'):
+                if lines and item.get('symbol') == 'ring':
+                    plain.append(('row', item['color'], pick(item), 'fill', 1.0))
+                    continue
+                if lines and item.get('type') == 'line':
+                    plain.append(('row', item['color'], pick(item),
+                                  LineSample(item.get('dasharray'), float(item.get('width', 1.33)) * 0.75), 1.0))
+                    continue
                 frame = item.get('type') == 'line' or item.get('symbol') == 'ring'
                 plain.append(('row', item['color'], pick(item), 'frame' if frame else kind,
                               1.0 if frame else float(item.get('opacity', 1))))

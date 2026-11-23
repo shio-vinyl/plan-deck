@@ -166,6 +166,7 @@ deck.save('deck.pptx'); print(deck.warnings, deck.placements)
 | `matrix` | 矩阵表：两行合并表头、实色行头列、类别色列头、高亮格；在正文 1—1.25 倍里取放得下的最大字号铺满，选的字号记在 `deck.fitted` |
 | `node` / `arrow` / `shape` / `line` / `band` | 图示节点、全册一个样式的箭头、标记形状（`rect`、`oval`、`diamond`，其他直接传 `MSO_SHAPE` 成员）、连线、照片上垫字的渐隐暗带 |
 | `map` / `legend` / `picture` | 发布版里的地图（按 `print` 放、核对，未过 QA、主题已变或图面字体不是 `fonts.map` 时警告）/ 可编辑图例 / 照片截图（默认撑满槽位可能留白；`fit='cover'` 铺满并裁掉多出的部分，用于满版图） |
+| `map_label` / `inset_legend` | 鲜艳实用汇报的图上注记方框（白底黑框直角，纯黑字，引线指到点的边缘，位置是相对地图左上角的 cm）/ 图内一列图例（放在地图一角，白底细边框，不出分组标题，线带虚实，尺寸行默认不画，行太多、点用黄色时警告）；见 `map-types.md`“鲜艳实用汇报的地图” |
 | `notes` | 讲稿备注 |
 | `Deck.open(路径, style)` / `deck.at(n)` | 打开已有 pptx 接着改：模板和同事的形状不动，`at(n)` 取已有的页，页上已有的名字都算占用，新增形状不重名；`page()` 加新页 |
 
