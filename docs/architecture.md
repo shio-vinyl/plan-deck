@@ -130,7 +130,7 @@ pd:<page-type>:<slot>[:<index>]
 - **图面字体**：发布版带着运行的 `qa/`，其中 `<图>.metrics.json`（多面板图在 `qa/<图>/panels/<面板>.metrics.json`）的 `render.fonts` 记了出图时加载的字体：主题里的字体名 `family`、字体文件 `file` / `path`（可移植的相对路径；换用备用文件时为 `substitution`）、name 表 `names`、`coverage.faceMissingCount`（图上文字里这个字体缺的字数）。放图时取缺字最少的那些字体（中文图上是中文字体，只有西文字形的不算），字体名取 `names`（换用了备用文件时不用，`names` 记的是原字体）；旧发布版没有 `names` 时读字体文件里的名字，文件不在本机时用文件名，与 `fonts.map`（没写时 `fonts.cjk`）不是同一种就警告；`maps check` 每张图列出 `fonts`。没有这份记录的发布版不核对。多面板图读整页（Sheet）自己的记录和各面板的记录。
 - **map-legend v1**：每张图旁的 `<图>.legend.json`（约定由 gis-composer 维护，gis-plugin 登记）。运行时用它做两件事：
   - **放图**：有 `print`（`widthCm`、`heightCm`、`dpi`）时按原尺寸放，图上的字就是主题定的 pt。先核对 PNG 像素等于 `print` 换算的像素；槽位比 `print` 小时报错（改地图清单的 `layout.widthCm/heightCm` 重新出图，或换大槽位），明确要缩时写 `shrink=True`，并警告缩小后图上注记约多少 pt、是否低于 `mapText`。没有 `print` 的图按比例撑满槽位并警告。每次放图记一条放置记录（槽位、实际尺寸、实际 dpi）。
-  - **图例**：画成可编辑形状。分类行出标题加各类；尺寸行一行；普通行（范围线、示意面、放大位置）排在后面，线和圈画成虚线框，半透明面按不透明度画；`role: context` 的行可以不画；有 `shortLabel` 时默认用短名。几份 legend.json 可以合并成一个图例（放大图面板 + 整页的放大位置）。图例已画进 PNG（`drawn: true`）时警告重复。
+  - **图例**：画成可编辑形状。分类行出标题加各类；尺寸行一行；普通行（范围线、示意面、放大位置）排在后面，线和圈画成虚线框，半透明面按不透明度画；`role: context` 的行可以不画；有 `shortLabel` 时默认用短名。几份 legend.json 可以合并成一个图例（放大图面板 + 整页的放大位置）。图例已画进 PNG（`drawn: true`）时警告重复。gis-composer 符号库的行（带 `librarySymbol` 和 `svg`，如轨道交通站点、铁路、生态保护红线）照 `svg` 画成一组可编辑的自由曲线（`svgshape.py`：路径、矩形、虚线、斜线填充），和地图上是同一个符号；点符号占一个色块大小，线、面样本按原比例放进标注左边的空当。
 
 ## 运行时
 

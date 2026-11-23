@@ -314,6 +314,41 @@ class LegendTest(unittest.TestCase):
             labels = [s.text_frame.text for s in p.slide.shapes if s.name.startswith('pd:evidence:legend-label')]
             self.assertEqual(labels[-1], '放大位置')
 
+    def test_library_symbol_rows_draw_editable_shapes(self):
+        # gis-composer 符号库的行（librarySymbol + svg）：照 svg 画成一组自由曲线，不画色块
+        point = ('<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="-12.5 -12.5 25 25">'
+                 '<path d="M-7.5 -12.5 L7.5 -12.5 C10 -12.5 12.5 -10 12.5 -7.5 L12.5 7.5 L-12.5 7.5 Z" fill="#FFFFFF" fill-rule="evenodd" '
+                 'stroke="#000000" stroke-width="0.75"/><path d="M-3 -3 L3 -3 L3 3 L-3 3 Z M-1 -1 L1 -1 L1 1 L-1 1 Z" fill="#000000"/></svg>')
+        line = ('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="12" viewBox="0 0 18 9">'
+                '<path d="M0 4.5 L18 4.5" fill="none" stroke="#000000" stroke-width="2.835"/>'
+                '<path d="M0 4.5 L18 4.5" fill="none" stroke="#FEFEFE" stroke-width="1.701" stroke-dasharray="19.843 19.843"/></svg>')
+        area = ('<svg xmlns="http://www.w3.org/2000/svg" width="18" height="12" viewBox="0 0 13.5 9"><defs><pattern id="gmc-h-1" '
+                'patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(-45)"><path d="M0 2 H4" stroke="#0000FF" '
+                'stroke-width="1"/></pattern></defs><rect x="0.5" y="0.5" width="12.5" height="8" fill="url(#gmc-h-1)"/>'
+                '<rect x="0.5" y="0.5" width="12.5" height="8" fill="none" stroke="#0000FF" stroke-width="1"/></svg>')
+        ref = lambda kind, name: {'library': 'tkgh-2025', 'kind': kind, 'name': name}
+        doc = legend_doc('x.png', items=[
+            {'label': '地铁站', 'symbol': 'point', 'librarySymbol': ref('point', '轨道交通站点'), 'svg': point, 'color': '#000000'},
+            {'label': '铁路', 'type': 'line', 'librarySymbol': ref('line', '铁路'), 'svg': line, 'color': '#000000'},
+            {'label': '水源保护区', 'symbol': 'fill', 'librarySymbol': ref('fill', '饮用水水源地一级保护区'), 'svg': area, 'color': '#0000FF'}])
+        rows, skipped = legend_rows(doc)
+        self.assertEqual(skipped, [])
+        self.assertEqual([(r[2], r[3].name) for r in rows], [('地铁站', '轨道交通站点'), ('铁路', '铁路'), ('水源保护区', '饮用水水源地一级保护区')])
+        deck = Deck(EXAMPLE_STYLE)
+        p = deck.page('evidence', '2.1 现状用地')
+        p.legend(doc, 0, 6, 8)
+        groups = {s.name: s for s in p.slide.shapes if s.name.startswith('pd:evidence:legend-swatch')}
+        self.assertEqual(sorted(groups), ['pd:evidence:legend-swatch:0', 'pd:evidence:legend-swatch:1', 'pd:evidence:legend-swatch:2'])
+        station, rail, water = (groups[f'pd:evidence:legend-swatch:{i}'] for i in range(3))
+        self.assertEqual(len(station.shapes), 2)
+        self.assertEqual(round(station.width / 360000, 2), 0.42)                     # 点符号占一个色块（0.42 cm）
+        xml = rail.shapes[1]._element.xml
+        self.assertIn('a:custDash', xml)                                            # 白色虚线照 SVG 的长度
+        self.assertIn('FEFEFE', xml)
+        self.assertLessEqual(rail.width / 360000, 0.6)                               # 线样本不压到标注
+        self.assertIn('a:pattFill', water.shapes[0]._element.xml)
+        self.assertEqual(deck.warnings, [])
+
     def test_drawn_legend_warns(self):
         deck = Deck(EXAMPLE_STYLE)
         p = deck.page('evidence', '2.1 现状用地')
